@@ -1,0 +1,44 @@
+# Publishing House Worklog
+# Human context, decisions, and notes that bridge sessions and people.
+# Not a task tracker — the manifest tracks structured progress.
+
+entries:
+- date: 2026-10-26
+  author: eformat (assistant session)
+  summary: Combined zt-rhoai-operations-showroom + zt-rhoai-operations-automation into this Publishing House repo.
+  notes: |
+    Migration from two source repos into the publishing house format (mirroring ph-deploy-configure-rhoai):
+
+    - content/ — showroom AsciiDoc imported as-is, then page files renamed to match the
+      module outlines (migration convention: module-01-<slug>.adoc … module-06-<slug>.adoc);
+      nav.adoc + cross-page xrefs updated.
+    - manifests/ — the three learner-facing manifest dirs (01-ops-patterns, 02-idp-users-groups,
+      03-models-assets-scale).
+    - automation/gitops/cluster/ — the two-layer GitOps app-of-apps (rhoai-install, maas-platform,
+      infra/freeipa+ops-ldap, maas-model, mlflow, model-registry, kueue, oadp). All bootstrap
+      repoURLs and git.path values updated from `cluster/...` to `automation/gitops/cluster/...`
+      and the repo URL to github.com/rhpds/ph-operations-rhoai.
+    - automation/showroom-deployer/ — zt-showroom-deployer values. The template
+      (values-rhoai-operations.yaml) is committed; per-cluster values (fde2/fde) are copied as
+      LOCAL GITIGNORED files (lab credentials — never commit). gitRepoUrl in the per-cluster
+      values still points at the old showroom repo — update (or --set) when redeploying.
+    - publishing-house/ — spec.yaml (intake_type: migration, automation_type: gitops), design.md
+      (11 sections), 6 module outlines, tools copied from the ph template. Module outlines derived
+      from the imported module pages; environment sizing fields left TBD (infrastructure phase).
+    - qa-automation/ — healthcheck + e2e written for the operations lab (pre-provisioned cluster:
+      ArgoCD apps, FreeIPA, rhods CSV, DSC, showroom deployer chart). NOT yet run against a live
+      cluster — needs validation before trusting it.
+    - Page rename drift note: 09-conclusion.adoc's Module 1 recap still says "You deployed the
+      OpenShift GitOps Operator" but Module 1 has ArgoCD pre-provisioned (inspection only) —
+      stale from an earlier revision, left as-is for review.
+    - manifests/03-models-assets-scale/feature-store-wine/ is leftover from the dropped wine/Feast
+      content (only reference left is a DSC component table row in module 4) — deletion decision
+      pending.
+    - Repo URL question: in-repo references (catalog-info project-slug, site.yml url, README,
+      getting-connected clone URL, bootstrap repoURLs, e2e repo_url) point at
+      github.com/rhpds/ph-operations-rhoai, matching the ph-deploy-configure-rhoai convention
+      (origin=rhpds, upstream=eformat). Mike created the GitHub repo at
+      eformat/ph-operations-rhoai (origin here) — if the canonical home stays eformat,
+      update those references (sed s|rhpds/ph-operations-rhoai|eformat/ph-operations-rhoai|g).
+    - Next: /rhdp-publishing-house orchestrator flow (Central API registration, RCARS vetting,
+      infrastructure confirmation) is NOT yet run — spec/workflow_id is null until then.

@@ -1,0 +1,443 @@
+---
+# ============================================================================
+# E2E — End-to-end lab validation test
+# ============================================================================
+#
+# Purpose:
+#   Replays the student commands from the RHOAI 3.5 Operations Workshop
+#   modules on a pre-provisioned cluster. Acts as the automated "solve" —
+#   if this passes, the lab exercises work.
+#
+# Idempotent:
+#   Safe to re-run on a cluster where a previous run partially or fully
+#   completed. Role bindings are re-applied (no-op), projects are created
+#   only if missing, and backup/restore use timestamped names.
+#
+# Scope:
+#   - Module 1: Client-side render/diff of the ops-patterns app-of-apps demo
+#     (NO cluster changes — it is a render-only worked example)
+#   - Module 2: Persona groups, Auth CR, LOB projects + RoleBindings,
+#     workbench roles, MaaS permission tiers, MaaSModelRef convergence
+#   - Module 3: Model registry, Kueue demo queues, LocalQueue, hardware profiles
+#   - Module 4: Read-only subscription audit (walkthrough module — no changes)
+#   - Module 5: Read-only monitoring checks (walkthrough module — no changes)
+#   - Module 6: OADP DataProtectionApplication, namespace backup + restore
+#
+# Prerequisites:
+#   - PRE-PROVISIONED cluster (the GitOps cluster layer
+#     automation/gitops/cluster/ has deployed RHOAI, the MaaS platform,
+#     FreeIPA identity, the Lending model, the model registry, Kueue, OADP).
+#     qa-automation/healthcheck.yml should pass first.
+#   - cluster-admin credentials (oc logged in)
+#   - Internet access (for the git clone)
+#
+# NOTE: needs live-cluster validation — commands are derived from the module
+# content and the pre-provisioned cluster state; run against a fresh lab
+# cluster before relying on it.
+#
+# How manifests are accessed:
+#   The git clone at the start provides the manifests/ dir that students
+#   clone themselves (Getting Connected).
+# ============================================================================
+
+- name: End-to-End Test
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  module_defaults:
+    group/kubernetes.core.k8s:
+      kubeconfig: "{{ k8s_kubeconfig | default(omit) }}"
+  environment:
+    KUBECONFIG: "{{ k8s_kubeconfig | default(omit) }}"
+    K8S_AUTH_KUBECONFIG: "{{ k8s_kubeconfig | default(omit) }}"
+  vars:
+    # The repo URL and ref to clone for manifests access.
+    repo_url: https://github.com/rhpds/ph-operations-rhoai.git
+    repo_ref: "{{ tag | default('main') }}"
+    repo_path: /tmp/ph-operations-rhoai
+    # The working project students create in Getting Connected.
+    project_name: rhoai-ops
+    # Line-of-business projects created in Module 2 Exercise 3.
+    lobs:
+      - lending
+      - insurance
+  tasks:
+
+    # ========================================================================
+    # SETUP — Clone repo so we have access to manifests/
+    # ========================================================================
+
+    - name: "Clone repo for manifests"
+      ansible.builtin.git:
+        repo: "{{ repo_url }}"
+        dest: "{{ repo_path }}"
+        version: "{{ repo_ref }}"
+        depth: 1
+        force: true
+
+    # ========================================================================
+    # MODULE 1 — Operations Patterns (render-only worked example)
+    # ========================================================================
+    # The module's hands-on exercise renders and diffs the dev/prod
+    # app-of-apps example client-side. Nothing is applied to the cluster.
+
+    - name: "M1 | Render dev and prod environments with Kustomize"
+      ansible.builtin.shell: |
+        kustomize build --enable-alpha-plugins --enable-helm envs/dev
+        kustomize build --enable-alpha-plugins --enable-helm envs/prod
+      args:
+        chdir: "{{ repo_path }}/manifests/01-ops-patterns"
+      changed_when: true
+
+    - name: "M1 | Diff dev vs prod environments"
+      ansible.builtin.shell: |
+        diff -y --suppress-common-lines \
+          <(kustomize build --enable-alpha-plugins --enable-helm envs/dev) \
+          <(kustomize build --enable-alpha-plugins --enable-helm envs/prod)
+      args:
+        chdir: "{{ repo_path }}/manifests/01-ops-patterns"
+        executable: /bin/bash
+      changed_when: false
+
+    - name: "M1 | Client-side dry run of the prod environment"
+      ansible.builtin.shell: >-
+        kustomize build --enable-alpha-plugins --enable-helm envs/prod
+        | oc apply --dry-run=client -f -
+      args:
+        chdir: "{{ repo_path }}/manifests/01-ops-patterns"
+      changed_when: false
+
+    # ========================================================================
+    # MODULE 2 — Data Stewardship, Users & Access Control
+    # ========================================================================
+    # Identity (FreeIPA persona groups) is pre-provisioned via GitOps in
+    # automation/gitops/cluster/ops-ldap/. Students verify it, then apply the
+    # RHOAI auth model and the MaaS permission tiers by hand.
+
+    - name: "M2 | VERIFY — Pre-provisioned persona groups exist"
+      ansible.builtin.command: oc get group {{ item }}
+      loop:
+        - insurance-data-stewards
+        - insurance-data-scientists
+        - ml-engineers
+        - rhods-admins
+        - rhods-users
+      changed_when: false
+
+    - name: "M2 | Apply RHOAI Auth CR and custom workbench roles"
+      ansible.builtin.command:
+        cmd: oc apply -f {{ item }}
+        chdir: "{{ repo_path }}/manifests/02-idp-users-groups"
+      loop:
+        - rhoai-auth/auth-config.yaml
+        - rhoai-auth/workbench-roles.yaml
+      changed_when: true
+
+    - name: "M2 | Create line-of-business projects (idempotent)"
+      ansible.builtin.shell: |
+        oc new-project rhoai-{{ item }} 2>/dev/null || true
+        oc label namespace rhoai-{{ item }} opendatahub.io/dashboard=true --overwrite
+      loop: "{{ lobs }}"
+      changed_when: true
+
+    - name: "M2 | Bind LOB roles to groups"
+      ansible.builtin.shell: |
+        oc adm policy add-role-to-group admin   {{ item }}-data-owners    -n rhoai-{{ item }}
+        oc adm policy add-role-to-group admin   rhods-admins              -n rhoai-{{ item }}
+        oc adm policy add-role-to-group edit    {{ item }}-data-stewards  -n rhoai-{{ item }}
+        oc adm policy add-role-to-group edit    {{ item }}-data-scientists -n rhoai-{{ item }}
+      loop: "{{ lobs }}"
+      changed_when: true
+
+    - name: "M2 | Bind workbench roles to groups"
+      ansible.builtin.shell: |
+        oc adm policy add-cluster-role-to-group workbench-maintainer {{ item }}-data-owners    -n rhoai-{{ item }}
+        oc adm policy add-cluster-role-to-group workbench-editor     {{ item }}-data-stewards  -n rhoai-{{ item }}
+        oc adm policy add-cluster-role-to-group workbench-operator   {{ item }}-data-scientists -n rhoai-{{ item }}
+      loop: "{{ lobs }}"
+      changed_when: true
+
+    - name: "M2 | Impersonation check — data scientist can create workbenches"
+      ansible.builtin.command: >-
+        oc auth can-i create notebooks.kubeflow.org -n rhoai-lending
+        --as=rbac-e2e-check --as-group=lending-data-scientists
+      register: can_i_nb
+      failed_when: can_i_nb.stdout != 'yes'
+      changed_when: false
+
+    - name: "M2 | Impersonation check — data scientist cannot touch other LOB"
+      ansible.builtin.command: >-
+        oc auth can-i create notebooks.kubeflow.org -n rhoai-insurance
+        --as=rbac-e2e-check --as-group=lending-data-scientists
+      register: can_i_other
+      failed_when: can_i_other.stdout != 'no'
+      changed_when: false
+
+    - name: "M2 | Apply MaaS permission tiers (subscriptions + auth policies)"
+      ansible.builtin.command:
+        cmd: oc apply -f {{ item }}
+        chdir: "{{ repo_path }}/manifests/02-idp-users-groups/maas"
+      loop:
+        - subscription-performance.yaml
+        - subscription-standard.yaml
+        - authpolicy-performance.yaml
+        - authpolicy-standard.yaml
+      changed_when: true
+
+    - name: "M2 | VERIFY — Lending model MaaSModelRef is Ready"
+      ansible.builtin.command: >-
+        oc get maasmodelref qwen25-05b-maas -n rhoai-lending
+        -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}'
+      register: mmr
+      until: mmr.stdout == 'True'
+      retries: 20
+      delay: 15
+      changed_when: false
+
+    - name: "M2 | VERIFY — Auth CR carries the workshop groups"
+      ansible.builtin.command: >-
+        oc get auth default -o jsonpath='{.spec.adminGroups} {.spec.allowedGroups}'
+      register: auth_groups
+      failed_when: >-
+        auth_groups.stdout is not search('rhods-admins') or
+        auth_groups.stdout is not search('rhods-users')
+      changed_when: false
+
+    # ========================================================================
+    # MODULE 3 — Models and Assets (read-mostly; assets are pre-provisioned)
+    # ========================================================================
+
+    - name: "M3 | VERIFY — Model Registry REST route exists"
+      ansible.builtin.command: oc get route modelregistry-https -n rhoai-model-registries
+      changed_when: false
+
+    - name: "M3 | VERIFY — Kueue demo ClusterQueue is Active"
+      ansible.builtin.command: oc get clusterqueue research-team -o jsonpath='{.status.conditions[?(@.type=="Active")].status}'
+      register: kueue_cq
+      failed_when: kueue_cq.stdout != 'True'
+      changed_when: false
+
+    - name: "M3 | Create a LocalQueue in the working project (idempotent)"
+      ansible.builtin.shell: |
+        cat <<'EOF' | oc apply -f -
+        apiVersion: kueue.x-k8s.io/v1beta1
+        kind: LocalQueue
+        metadata:
+          name: team-a-lq
+          namespace: {{ project_name }}
+        spec:
+          clusterQueue: research-team
+        EOF
+      changed_when: true
+
+    - name: "M3 | VERIFY — Hardware profiles are listed"
+      ansible.builtin.command: oc get hardwareprofiles
+      changed_when: false
+
+    # ========================================================================
+    # MODULE 4 — Upgrades (walkthrough module — read-only audit)
+    # ========================================================================
+
+    - name: "M4 | VERIFY — RHOAI operator CSV is Succeeded"
+      ansible.builtin.command: >-
+        oc get csv -n redhat-ods-operator
+        -l operators.coreos.com/rhods-operator.redhat-ods-operator
+        -o jsonpath='{.items[0].status.phase}'
+      register: rhods_csv
+      failed_when: rhods_csv.stdout != 'Succeeded'
+      changed_when: false
+
+    - name: "M4 | VERIFY — RHOAI subscription is on the stable channel"
+      ansible.builtin.command: >-
+        oc get subscription rhods-operator -n redhat-ods-operator
+        -o jsonpath='{.spec.channel}'
+      register: rhods_channel
+      failed_when: not (rhods_channel.stdout is match('^stable'))
+      changed_when: false
+
+    - name: "M4 | Read-only — list operator subscriptions and channels"
+      ansible.builtin.command: >-
+        oc get subscriptions -A
+        -o custom-columns=NS:.metadata.namespace,NAME:.metadata.name,CHANNEL:.spec.channel,APPROVAL:.spec.installPlanApproval
+      changed_when: false
+
+    # ========================================================================
+    # MODULE 5 — Observe & Debug (walkthrough module — read-only)
+    # ========================================================================
+
+    - name: "M5 | VERIFY — RHOAI monitoring stack pods exist"
+      ansible.builtin.command: oc get pods -n redhat-ods-monitoring
+      changed_when: false
+
+    - name: "M5 | PromQL query — platform up metric"
+      ansible.builtin.shell: >-
+        oc exec -n redhat-ods-monitoring deploy/monitoring-prometheus-prometheus
+        -c prometheus -- curl -s https://localhost:9090/api/v1/query
+        --data-urlencode 'query=up' | jq -e '.data.result | length > 0'
+      args:
+        executable: /bin/bash
+      register: promql
+      until: promql.rc == 0
+      retries: 5
+      delay: 10
+      changed_when: false
+
+    - name: "M5 | Read-only — RHOAI operator logs are readable"
+      ansible.builtin.shell: oc logs deploy/rhods-operator -n redhat-ods-operator --tail=5
+      changed_when: false
+
+    # ========================================================================
+    # MODULE 6 — Backups & Disaster Recovery
+    # ========================================================================
+    # The OADP operator subscription is pre-provisioned via GitOps
+    # (automation/gitops/cluster/oadp/). Students claim the NooBaa bucket,
+    # build the DataProtectionApplication, then back up + restore the project.
+
+    - name: "M6 | VERIFY — OADP operator CSV is Succeeded"
+      ansible.builtin.command: oc get csv -n openshift-adp -o jsonpath='{.items[0].status.phase}'
+      register: oadp_csv
+      until: oadp_csv.stdout == 'Succeeded'
+      retries: 10
+      delay: 30
+      changed_when: false
+
+    - name: "M6 | Claim the NooBaa backup bucket (idempotent)"
+      ansible.builtin.shell: |
+        cat <<'EOF' | oc apply -f -
+        apiVersion: objectbucket.io/v1alpha1
+        kind: ObjectBucketClaim
+        metadata:
+          name: oadp-backups
+          namespace: openshift-adp
+        spec:
+          storageClassName: openshift-storage.noobaa.io
+          generateBucketName: oadp-backups
+        EOF
+      changed_when: true
+
+    - name: "M6 | Polling for the OBC config map (retries expected, ~2 min)"
+      ansible.builtin.command: oc get cm oadp-backups -n openshift-adp
+      register: obc_cm
+      until: obc_cm.rc == 0
+      retries: 20
+      delay: 10
+      changed_when: false
+
+    - name: "M6 | Create the Velero cloud-credentials secret"
+      ansible.builtin.shell: |
+        AWS_ACCESS_KEY_ID=$(oc get secret oadp-backups -n openshift-adp -o jsonpath='{.data.AWS_ACCESS_KEY_ID}' | base64 -d)
+        AWS_SECRET_ACCESS_KEY=$(oc get secret oadp-backups -n openshift-adp -o jsonpath='{.data.AWS_SECRET_ACCESS_KEY}' | base64 -d)
+        oc create secret generic cloud-credentials -n openshift-adp \
+          --from-literal=cloud="[default]
+        aws_access_key_id=${AWS_ACCESS_KEY_ID}
+        aws_secret_access_key=${AWS_SECRET_ACCESS_KEY}" \
+          --dry-run=client -o yaml | oc apply -f -
+      changed_when: true
+
+    - name: "M6 | Apply the DataProtectionApplication (reads OBC values)"
+      ansible.builtin.shell: |
+        BUCKET_NAME=$(oc get cm oadp-backups -n openshift-adp -o jsonpath='{.data.BUCKET_NAME}')
+        BUCKET_HOST=$(oc get cm oadp-backups -n openshift-adp -o jsonpath='{.data.BUCKET_HOST}')
+        BUCKET_PORT=$(oc get cm oadp-backups -n openshift-adp -o jsonpath='{.data.BUCKET_PORT}')
+        cat <<EOF | oc apply -f -
+        apiVersion: oadp.openshift.io/v1alpha1
+        kind: DataProtectionApplication
+        metadata:
+          name: oadp-dpa
+          namespace: openshift-adp
+        spec:
+          configuration:
+            velero:
+              defaultPlugins:
+                - openshift
+                - aws
+            nodeAgent:
+              enable: true
+              uploaderType: kopia
+          backupLocations:
+            - velero:
+                config:
+                  profile: default
+                  region: us-east-1
+                  s3ForcePathStyle: "true"
+                  s3Url: "https://${BUCKET_HOST}:${BUCKET_PORT}"
+                  insecureSkipTLSVerify: "true"
+                credential:
+                  key: cloud
+                  name: cloud-credentials
+                default: true
+                objectStorage:
+                  bucket: ${BUCKET_NAME}
+                  prefix: rhoai
+                provider: aws
+        EOF
+        oc wait --for=condition=Available dataprotectionapplication/oadp-dpa -n openshift-adp --timeout=10m
+      changed_when: true
+
+    - name: "M6 | Seed a test config map in the working project"
+      ansible.builtin.shell: |
+        oc create configmap test-rhoai-config -n {{ project_name }} \
+          --from-literal=app=rhoai-ops --from-literal=team=platform --dry-run=client -o yaml | oc apply -f -
+      changed_when: true
+
+    - name: "M6 | Back up the working project (Kubernetes resources only)"
+      ansible.builtin.shell: |
+        BACKUP_NAME=rhoai-project-backup-$(date +%Y%m%d-%H%M%S)
+        cat <<EOF | oc apply -f -
+        apiVersion: velero.io/v1
+        kind: Backup
+        metadata:
+          name: ${BACKUP_NAME}
+          namespace: openshift-adp
+          labels:
+            velero.io/storage-location: oadp-dpa-1
+        spec:
+          includedNamespaces:
+            - {{ project_name }}
+          storageLocation: oadp-dpa-1
+          ttl: 720h0m0s
+          defaultVolumesToFsBackup: false
+          snapshotVolumes: false
+        EOF
+        oc wait --for=jsonpath='{.status.phase}'=Completed backup/${BACKUP_NAME} -n openshift-adp --timeout=10m
+      register: backup_result
+      changed_when: true
+
+    - name: "M6 | Simulate data loss — delete the test config map"
+      ansible.builtin.command: oc delete configmap test-rhoai-config -n {{ project_name }} --ignore-not-found
+      changed_when: true
+
+    - name: "M6 | Restore from the latest backup"
+      ansible.builtin.shell: |
+        BACKUP_NAME=$(oc get backups.velero.io -n openshift-adp -o jsonpath='{.items[0].metadata.name}')
+        RESTORE_NAME=rhoai-project-restore-$(date +%Y%m%d-%H%M%S)
+        cat <<EOF | oc apply -f -
+        apiVersion: velero.io/v1
+        kind: Restore
+        metadata:
+          name: ${RESTORE_NAME}
+          namespace: openshift-adp
+        spec:
+          backupName: ${BACKUP_NAME}
+          includedNamespaces:
+            - {{ project_name }}
+          existingResourcePolicy: update
+        EOF
+        oc wait --for=jsonpath='{.status.phase}'=Completed restore/${RESTORE_NAME} -n openshift-adp --timeout=10m
+      changed_when: true
+
+    - name: "M6 | VERIFY — Restored config map is back with its data"
+      ansible.builtin.command: >-
+        oc get configmap test-rhoai-config -n {{ project_name }}
+        -o jsonpath='{.data.app}'
+      register: restored_cm
+      failed_when: restored_cm.stdout != 'rhoai-ops'
+      changed_when: false
+
+    # ========================================================================
+    # FINAL — Summary
+    # ========================================================================
+
+    - name: "E2E complete"
+      ansible.builtin.debug:
+        msg: "All modules (1-6) executed and verified successfully."

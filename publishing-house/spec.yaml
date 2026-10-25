@@ -1,0 +1,144 @@
+project:
+  slug: ph-operations-rhoai
+  owner_email: psrivast@redhat.com
+  content_type: lab
+  deployment_mode: rhdp_published
+  initiative_key: none
+  showroom_type: classic
+  intake_type: migration
+  automation_type: gitops
+  description: "RHOAI 3.5 Operations Workshop \u2014 A hands-on, day-2 operations lab\
+    \ that walks platform administrators and MLOps engineers through operating Red Hat\
+    \ OpenShift AI at scale: platform-as-code with GitOps and ACM, data stewardship and\
+    \ RBAC, models and assets at scale, the upgrade lifecycle, observability, and backup/DR\
+    \ with OADP. A follow-up to the RHOAI Deploy & Configure workshop."
+  jira_ticket: none
+  workflow_id: null
+spec:
+  title: RHOAI 3.5 Operations Workshop
+  learning_objectives:
+  - Describe the phoenix platform-as-code pattern and manage RHOAI with GitOps, app-of-apps, and ACM policy generation
+  - Model a data-stewardship organization onto OpenShift groups, Data Science Projects, RoleBindings, and the RHOAI Auth CR
+  - Configure MaaS permission tiers bound to groups and verify RBAC decisions as different personas
+  - Build custom workbench images, ModelCar OCI containers, and register models in the model registry at scale
+  - Plan RHOAI operator upgrades with OLM channels, dependent operator pinning, and pre-upgrade checklists
+  - Observe the platform with RHOAI monitoring dashboards, PromQL metrics export, audit logs, and llm-d Perses dashboards
+  - Protect RHOAI with OADP backups, namespace restore, and an understanding of the CRD dependency graph
+  modules:
+  - id: module-01
+    title: Operations Guidelines and Patterns
+    duration_min: 30
+    status: complete
+  - id: module-02
+    title: Data Stewardship, Users & Access Control
+    duration_min: 60
+    status: complete
+  - id: module-03
+    title: Managing Models and Assets at Scale
+    duration_min: 60
+    status: complete
+  - id: module-04
+    title: Upgrades
+    duration_min: 45
+    status: complete
+  - id: module-05
+    title: Observe & Debug
+    duration_min: 40
+    status: complete
+  - id: module-06
+    title: Backups & Disaster Recovery
+    duration_min: 45
+    status: complete
+  environment:
+    platform: ocp
+    topology: shared-cluster
+    cloud_provider: ''
+    max_concurrent_users: null
+    ocp_version: '4.21'
+    cluster_type: multinode
+    control_plane_instance_count: null
+    control_plane_cpu: null
+    control_plane_ram_gb: null
+    worker_count: null
+    worker_cpu: null
+    worker_ram_gb: null
+    worker_disk_gb: null
+    vms_per_student: []
+    aap_version: ''
+    ai_requirement: maas
+    ai_model_tier: open-source
+    ai_model_name: qwen25-05b
+    ai_justification: ''
+    non_ga_products:
+    - AITenant (Tech Preview)
+    - MaaS external metering (Dev Preview, planned for RHOAI 3.6)
+    non_ga_access_plan: AITenant and the planned MaaS external metering architecture are covered conceptually; no special
+      access is required for the lab exercises.
+    external_services:
+    - github.com
+    - quay.io
+    - registry.redhat.io
+    gpu_nodes: 0
+    gpu_type: ''
+  duration_hours: 5
+  audience: advanced
+development:
+  automation:
+    gitops:
+      status: complete
+  e2e:
+    status: not_started
+  healthCheck:
+    status: not_started
+compliance:
+  last_hard_check: null
+  hard_result: null
+tracking:
+  paused: false
+  pause_reason: null
+approval_checklist:
+  content:
+    prerequisites_verifiable: null
+    assessment_strategy: 'No automated assessment. Participants verify their own progress by observing CLI output, resource
+      status conditions, and dashboard state at the end of each exercise.'
+    catalog_gap: "This lab uniquely covers day-2 operations of Red Hat OpenShift AI at scale \u2014 platform-as-code with\
+      \ GitOps/ACM, data-stewardship RBAC with persona walkthroughs, model/asset lifecycle at scale (workbench images, ModelCars,\
+      \ model registry, Kueue), the RHOAI upgrade lifecycle with operator pinning, observability and metrics export, and\
+      \ OADP-based backup/DR. Existing catalog items cover deploying and configuring RHOAI (the prerequisite workshop) or\
+      \ MaaS consumption; none walk an operator through running the platform after deployment."
+    design_overview: A day-2 RHOAI operations lab for advanced OCP platform administrators and MLOps engineers, run on a
+      pre-provisioned RHOAI 3.5 cluster (deployed by the prerequisite Deploy & Configure workshop). Modules cover the phoenix
+      platform-as-code pattern with GitOps and ACM, data-stewardship RBAC with persona-based access verification, model and
+      asset management at scale, the operator upgrade lifecycle, monitoring/metrics/audit observability, and OADP backup
+      and disaster recovery. GPU topics (Kueue scheduling, MIG/DRA, llm-d topologies) are covered conceptually \u2014 no GPU
+      hardware is required.
+    module_summaries:
+    - title: 'Module 1: Operations Guidelines and Patterns'
+      overview: Describe the phoenix platform-as-code pattern, GitOps trunk-based strategies, and the app-of-apps pattern;
+        render and diff a dev/prod operator-install example and cover ACM, ACS, secrets management, and SOPs.
+    - title: 'Module 2: Data Stewardship, Users & Access Control'
+      overview: Model a data-stewardship organization onto OpenShift groups and projects; verify the pre-provisioned FreeIPA
+        persona groups, configure the Auth CR, RoleBindings, and workbench roles, and prove RBAC with persona impersonation
+        and MaaS permission tiers.
+    - title: 'Module 3: Managing Models and Assets at Scale'
+      overview: Build a custom workbench image and a ModelCar OCI container, register a model in the model registry, and
+        cover Kueue GPU scheduling, MIG/DRA partitioning, and llm-d serving topologies conceptually.
+    - title: 'Module 4: Upgrades'
+      overview: Walk through the RHOAI release cadence and OLM subscription anatomy, audit dependent-operator channels and
+        pinning, compare MaaS across 3.4/3.5/3.6, and build a pre-upgrade checklist \u2014 no actual upgrade is executed.
+    - title: 'Module 5: Observe & Debug'
+      overview: Explore the built-in RHOAI monitoring dashboards, query model serving metrics with PromQL, configure Prometheus
+        remote-write export, read audit logs, and cover llm-d Perses dashboards and the planned MaaS metering architecture.
+    - title: 'Module 6: Backups & Disaster Recovery'
+      overview: Configure OADP with a NooBaa object bucket, back up and restore an RHOAI project namespace, and cover the
+        etcd backup layer, the RHOAI CRD dependency graph, and product gaps framed as RFEs.
+    rcars_overlap_pct: null
+    rcars_top_matches: []
+    rejections: []
+  infra:
+    peak_environments: null
+    cost_per_run_est: ''
+    provisioning_time_est: ''
+    agnosticv_base_ci: ''
+    approved_by: ''
+    rejections: []

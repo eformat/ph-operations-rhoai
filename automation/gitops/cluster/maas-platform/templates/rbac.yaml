@@ -1,0 +1,150 @@
+---
+# RBAC for the maas-setup ServiceAccount (the sync-hook Jobs). All
+# ClusterRoles + ClusterRoleBindings (no namespace-scoped Roles) — the
+# namespaces the Jobs touch (redhat-ods-applications, openshift-ingress) are
+# created by other apps in parallel, so binding in those namespaces would race
+# their creation on a fresh cluster. Cluster-scoped bindings always apply.
+# Permissions are limited by resourceNames where the resource is uniquely named.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: maas-setup
+  namespace: kuadrant-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: maas-setup-read
+rules:
+  # authorino-trust: deployments get/list/watch (rollout status after the
+  # trust-bundle patch re-rolls the deployment).
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: maas-setup-dsc
+rules:
+  # dsc-maas-enable: merge-patch the DataScienceCluster (modelsAsAService).
+  - apiGroups: ["datasciencecluster.opendatahub.io"]
+    resources: ["datascienceclusters"]
+    resourceNames: ["default-dsc"]
+    verbs: ["get", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: maas-setup-maas
+rules:
+  # authorino-trust: merge-patch the Kuadrant operator's Authorino CR (volumes).
+  - apiGroups: ["operator.authorino.kuadrant.io"]
+    resources: ["authorinos"]
+    resourceNames: ["authorino"]
+    verbs: ["get", "patch"]
+  # gateway-status: read the Gateway (Programmed + addresses), patch the
+  # gateway Service STATUS with the Route hostname. The status subresource is
+  # its own RBAC resource (services/status) — granting only "services" makes
+  # the --subresource=status patch Forbidden.
+  - apiGroups: ["gateway.networking.k8s.io"]
+    resources: ["gateways"]
+    resourceNames: ["maas-default-gateway"]
+    verbs: ["get", "patch"]
+  - apiGroups: [""]
+    resources: ["services", "services/status"]
+    resourceNames: ["maas-default-gateway-data-science-gateway-class"]
+    verbs: ["get", "patch"]
+---
+# tls-bootstrap-kick: list the Authorino CR (the ordering gate the
+# gateway-auth-bootstrap controller reads) — the kick Job waits for it to
+# exist before touching the Gateway. The authorinos list verb is separate
+# from the authorino-trust patch above (which is name-scoped).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: maas-setup-authorino-list
+rules:
+  - apiGroups: ["operator.authorino.kuadrant.io"]
+    resources: ["authorinos"]
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: maas-setup-secrets
+rules:
+  # postgres-secrets: create the MaaS database secrets (create cannot carry
+  # resourceNames; get/update/patch are limited to the two names).
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["create"]
+  - apiGroups: [""]
+    resources: ["secrets"]
+    resourceNames: ["postgres-creds", "maas-db-config"]
+    verbs: ["get", "update", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: maas-setup-read
+subjects:
+  - kind: ServiceAccount
+    name: maas-setup
+    namespace: kuadrant-system
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: maas-setup-read
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: maas-setup-dsc
+subjects:
+  - kind: ServiceAccount
+    name: maas-setup
+    namespace: kuadrant-system
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: maas-setup-dsc
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: maas-setup-maas
+subjects:
+  - kind: ServiceAccount
+    name: maas-setup
+    namespace: kuadrant-system
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: maas-setup-maas
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: maas-setup-authorino-list
+subjects:
+  - kind: ServiceAccount
+    name: maas-setup
+    namespace: kuadrant-system
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: maas-setup-authorino-list
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: maas-setup-secrets
+subjects:
+  - kind: ServiceAccount
+    name: maas-setup
+    namespace: kuadrant-system
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: maas-setup-secrets

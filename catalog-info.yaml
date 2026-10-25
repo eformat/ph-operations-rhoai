@@ -1,0 +1,41 @@
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: ph-operations-rhoai
+  title: ph-operations-rhoai
+  description: "RHOAI 3.5 Operations Workshop \u2014 A hands-on, day-2 operations lab\
+    \ that walks platform administrators and MLOps engineers through operating Red Hat\
+    \ OpenShift AI at scale: platform-as-code with GitOps and ACM, data stewardship and\
+    \ RBAC, models and assets at scale, the upgrade lifecycle, observability, and backup/DR\
+    \ with OADP. A follow-up to the RHOAI Deploy & Configure workshop, combining the\
+    \ workshop showroom content and its two-layer GitOps automation in one repo."
+  annotations:
+    ph.rhdp.io/content-type: lab
+    ph.rhdp.io/deployment-mode: rhdp_published
+    ph.rhdp.io/github-user: eformat
+    ph.rhdp.io/owner: mhepburn@redhat.com
+    ph.rhdp.io/migrated-repo: https://github.com/rhai-code/zt-rhoai-operations-showroom
+    ph.rhdp.io/migrated-automation-repo: https://github.com/rhai-code/zt-rhoai-operations-automation
+    backstage.io/techdocs-ref: dir:.
+    github.com/project-slug: rhpds/ph-operations-rhoai
+    ph.rhdp.io/created-at: 2026-10-26 09:23:00.000000+00:00
+  tags:
+  - publishing-house
+  - lab
+  - rhdp-published
+  - migration
+  links:
+  - url: https://github.com/rhpds/ph-operations-rhoai
+    title: Repository
+    icon: github
+  - url: https://devspaces.apps.ocpv-infra02.wdc07.infra.demo.redhat.com#https://github.com/rhpds/ph-operations-rhoai
+    title: Open in DevSpaces
+    icon: catalog
+  - url: https://central-api-publishing-house.apps.ocpv-infra02.wdc07.infra.demo.redhat.com
+    title: Central
+    icon: dashboard
+spec:
+  type: content
+  lifecycle: experimental
+  owner: rhdp-team
+  system: publishing-house

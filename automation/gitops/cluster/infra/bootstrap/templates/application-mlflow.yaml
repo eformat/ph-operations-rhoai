@@ -1,0 +1,37 @@
+{{ if .Values.mlflow.enabled -}}
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: mlflow
+  namespace: openshift-gitops
+spec:
+  project: infra
+  source:
+    repoURL: {{ .Values.mlflow.git.repoURL }}
+    targetRevision: {{ .Values.mlflow.git.targetRevision }}
+    path: {{ .Values.mlflow.git.path }}
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: {{ .Values.mlflow.namespace }}
+  syncPolicy:
+    automated:
+      enabled: true
+      # selfHeal re-syncs when the pool's sync resets the DSC component — the
+      # wave-1 hook Job (merge patch) then re-enables mlflowoperator and the
+      # operator reinstalls the MLflow CRDs the operator removed.
+      selfHeal: true
+    syncOptions:
+      - ServerSideApply=true
+      # The MLflow CRD is NOT part of the sync: the mlflowoperator installs it
+      # in response to the hook Job's DSC merge patch (~15s).
+      # SkipDryRunOnMissingResource + retry bridge the gap; the CR applies once
+      # the CRD exists.
+      - SkipDryRunOnMissingResource=true
+      - RespectIgnoreDifferences=true
+    retry:
+      limit: 10
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
+{{- end }}

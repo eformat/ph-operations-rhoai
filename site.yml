@@ -1,0 +1,29 @@
+---
+site:
+  title: "RHOAI 3.5 Operations Workshop"
+  url: https://rhpds.github.io/ph-operations-rhoai
+  start_page: modules::index.adoc
+
+content:
+  sources:
+    - url: .
+      start_path: content
+
+ui:
+  bundle:
+    url: https://github.com/rhpds/rhdp_showroom_theme/releases/download/summit-2026/ui-bundle.zip
+    snapshot: true
+  supplemental_files: ./content/supplemental-ui
+
+asciidoc:
+  attributes:
+    # --- RHOAI 3.5 build attributes ---
+    rhoai_version: "3.5"
+    lab_name: "RHOAI 3.5 Operations Workshop"
+
+antora:
+  extensions:
+    - require: ./content/lib/inject-buttons.js
+
+output:
+  dir: ./www

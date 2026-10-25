@@ -1,0 +1,147 @@
+# RBAC for the setup Jobs. The freeipa-setup ServiceAccount gets:
+#   - pods get/exec in the FreeIPA namespace (populate + CA jobs exec into the
+#     freeipa pod for the persona CLI and the CA extraction)
+#   - secrets + configmaps create/get in ns openshift-config (the CA configmap for
+#     the OAuth LDAP IdP's `ca` ref + the bind password secret for the IdP's
+#     `bindPassword` ref)
+#   - cluster-scoped OAuth patch (the LDAP IdP + groups-claim jobs)
+#   - deployments get/list/watch in ns openshift-authentication (the OAuth roll-out
+#     check after patching: `oc rollout status deployment/oauth-openshift` needs
+#     get/list/watch; without it the check is Forbidden and silently burns the
+#     full wait loop — the discarded stderr hides the error)
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: freeipa-setup
+  namespace: {{ .Values.freeipaNamespace }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: freeipa-setup-exec
+  namespace: {{ .Values.freeipaNamespace }}
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list"]
+  - apiGroups: [""]
+    resources: ["pods/exec"]
+    verbs: ["create"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: freeipa-setup-exec
+  namespace: {{ .Values.freeipaNamespace }}
+subjects:
+  - kind: ServiceAccount
+    name: freeipa-setup
+    namespace: {{ .Values.freeipaNamespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: freeipa-setup-exec
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: freeipa-setup-openshift-config
+  namespace: openshift-config
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["create"]
+  - apiGroups: [""]
+    resources: ["secrets"]
+    resourceNames: ["freeipa-ca", "freeipa-ldap-bind-password"]
+    verbs: ["get", "update", "patch"]
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["create"]
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    resourceNames: ["freeipa-ca"]
+    verbs: ["get", "update", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: freeipa-setup-openshift-config
+  namespace: openshift-config
+subjects:
+  - kind: ServiceAccount
+    name: freeipa-setup
+    namespace: {{ .Values.freeipaNamespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: freeipa-setup-openshift-config
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: freeipa-setup-oauth-rollout
+  namespace: openshift-authentication
+rules:
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: freeipa-setup-oauth-rollout
+  namespace: openshift-authentication
+subjects:
+  - kind: ServiceAccount
+    name: freeipa-setup
+    namespace: {{ .Values.freeipaNamespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: freeipa-setup-oauth-rollout
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: freeipa-setup-oauth
+rules:
+  - apiGroups: ["config.openshift.io"]
+    resources: ["oauths"]
+    resourceNames: ["cluster"]
+    verbs: ["get", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: freeipa-setup-groups
+rules:
+  - apiGroups: ["user.openshift.io"]
+    resources: ["groups"]
+    verbs: ["create", "get", "list", "update", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: freeipa-setup-groups
+subjects:
+  - kind: ServiceAccount
+    name: freeipa-setup
+    namespace: {{ .Values.freeipaNamespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: freeipa-setup-groups
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: freeipa-setup-oauth
+subjects:
+  - kind: ServiceAccount
+    name: freeipa-setup
+    namespace: {{ .Values.freeipaNamespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: freeipa-setup-oauth

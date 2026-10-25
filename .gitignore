@@ -1,0 +1,21 @@
+# Antora build output
+www/
+www-35/
+.cache/
+.claude/
+node_modules/
+.DS_Store
+.playwright-cli/
+*.log
+*.tmp
+.env
+.env.local
+.env.*.local
+
+# Per-cluster deploy values carry lab-scoped credentials (passwords, wetty sshPass)
+# and accumulate per cluster — never commit. The template
+# (automation/showroom-deployer/values-rhoai-operations.yaml) stays in git as the
+# placeholder version.
+automation/showroom-deployer/values-*.yaml
+!automation/showroom-deployer/values-rhoai-operations.yaml
+.scaffolds/

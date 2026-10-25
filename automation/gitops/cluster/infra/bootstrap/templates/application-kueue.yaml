@@ -1,0 +1,36 @@
+{{ if .Values.kueue.enabled -}}
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: kueue
+  namespace: openshift-gitops
+spec:
+  project: infra
+  source:
+    repoURL: {{ .Values.kueue.git.repoURL }}
+    targetRevision: {{ .Values.kueue.git.targetRevision }}
+    path: {{ .Values.kueue.git.path }}
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: {{ .Values.kueue.namespace }}
+  syncPolicy:
+    automated:
+      enabled: true
+      selfHeal: true
+    syncOptions:
+      # ServerSideApply keeps Git the source of truth for the Subscription and
+      # the demo queues.
+      - ServerSideApply=true
+      # The kueue.x-k8s.io CRDs are NOT part of the sync: the Red Hat build of
+      # Kueue operator installs them in response to the Subscription (~1-2
+      # min). SkipDryRunOnMissingResource + retry bridge the gap; the demo
+      # queues apply once the CRDs exist.
+      - SkipDryRunOnMissingResource=true
+      - RespectIgnoreDifferences=true
+    retry:
+      limit: 10
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
+{{- end }}

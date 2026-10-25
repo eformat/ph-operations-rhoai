@@ -1,0 +1,59 @@
+---
+# Red Hat Connectivity Link (Kuadrant/Authorino) + cert-manager operator
+# subscriptions ONLY. The Kuadrant CR is Git-managed alongside them: the
+# kuadrants CRD is registered by the RHCL operator CSV, so on a fresh cluster
+# the first sync attempts fail with "no matches for kind" until the CSV
+# installs — SkipDryRunOnMissingResource + the app's retry bridge the gap (the
+# same pattern as the kueue app's operator config CR).
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: cert-manager-operator
+# NOTE: the OperatorGroup is intentionally absent. These lab clusters already
+# ship one (`cert-manager-operator-og`) in this namespace, and a namespace may
+# hold only ONE OperatorGroup — creating a second makes OLM refuse to resolve
+# the CSV ("csv created in namespace with multiple operatorgroups") and the
+# cert-manager CSV lands in phase Failed. For clusters that do NOT
+# pre-provision one, add it only if
+#   oc get operatorgroup -n cert-manager-operator
+# returns nothing:
+# ---
+# apiVersion: operators.coreos.com/v1
+# kind: OperatorGroup
+# metadata:
+#   name: cert-manager-operator
+#   namespace: cert-manager-operator
+# spec:
+#   targetNamespaces:
+#     - cert-manager-operator
+---
+apiVersion: operators.coreos.com/v1alpha1
+kind: Subscription
+metadata:
+  name: openshift-cert-manager-operator
+  namespace: cert-manager-operator
+spec:
+  channel: stable-v1
+  installPlanApproval: Automatic
+  name: openshift-cert-manager-operator
+  source: redhat-operators
+  sourceNamespace: openshift-marketplace
+---
+# Red Hat Connectivity Link operator (Kuadrant). Installs cluster-wide
+# (openshift-operators is the global operators namespace).
+apiVersion: operators.coreos.com/v1alpha1
+kind: Subscription
+metadata:
+  name: rhcl-operator
+  namespace: openshift-operators
+spec:
+  channel: stable
+  installPlanApproval: Automatic
+  name: rhcl-operator
+  source: redhat-operators
+  sourceNamespace: openshift-marketplace
+  config:
+    env:
+      - name: AUTH_SERVICE_TIMEOUT
+        value: "10s"

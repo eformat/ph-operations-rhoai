@@ -1,0 +1,25 @@
+---
+# The Kuadrant CR — Git-managed (custom resources as code). The kuadrants CRD
+# is registered by the RHCL operator CSV, so on a fresh cluster the first sync
+# attempts fail with "no matches for kind" until the CSV installs (~5-10 min) —
+# SkipDryRunOnMissingResource + the app's retry bridge the gap (the same
+# pattern as the kueue app's operator config CR).
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: kuadrant-system
+---
+apiVersion: kuadrant.io/v1beta1
+kind: Kuadrant
+metadata:
+  name: kuadrant
+  namespace: kuadrant-system
+spec:
+  # Enable observability so the operator creates the ServiceMonitor/PodMonitor
+  # set that scrapes the Kuadrant data-plane (Limitador, Authorino) and
+  # control-plane metrics into monitoring. This is what surfaces
+  # per-subscription token usage in the RHOAI "Usage" dashboard. Without it the
+  # Kuadrant CR ships spec.observability: {} and none of those monitors are
+  # created.
+  observability:
+    enable: true

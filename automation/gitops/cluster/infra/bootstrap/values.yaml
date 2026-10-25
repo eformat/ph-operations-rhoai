@@ -1,0 +1,185 @@
+# automation/gitops/cluster/infra/bootstrap/values.yaml
+#
+# App-of-apps entry chart for the infra layer. A single one-time ArgoCD Application
+# ("bootstrap-ops") points at this directory; ArgoCD renders this chart and creates
+# the AppProject + all child Applications for the enabled workloads.
+#
+# HOW TO CONTROL: set the workload flags below (or from the one-time bootstrap apply).
+#
+# The `deployer` block is injected at the one-time bootstrap apply from the live
+# cluster. The placeholders exist only so `helm template` works locally without a
+# cluster. The `freeipa.password` is likewise set at the one-time apply from the
+# shell — NEVER committed to git.
+
+# ---------------------------------------------------------------------------
+# Git defaults — applied to every child Application via the &git_defaults anchor.
+# ---------------------------------------------------------------------------
+default_settings: &git_defaults
+  repoURL: https://github.com/rhpds/ph-operations-rhoai
+  targetRevision: main
+
+# ---------------------------------------------------------------------------
+# deployer — set at the one-time bootstrap apply. Placeholders for local builds.
+# ---------------------------------------------------------------------------
+deployer:
+  domain: apps.cluster-guid.example.com
+  apiUrl: https://api.cluster-guid.example.com:6443
+
+# ---------------------------------------------------------------------------
+# freeipa — in-cluster LDAP directory, wired into OpenShift via the OCP-native
+# LDAP identity provider. Enabled by default. realm/domain/hostname are the
+# Fedoracapital demo identity. password: set at the one-time bootstrap apply
+# (reuse the existing lab admin password) — never in git.
+# ---------------------------------------------------------------------------
+freeipa:
+  enabled: true
+  git:
+    path: automation/gitops/cluster/infra/freeipa
+    <<: *git_defaults
+  namespace: freeipa
+  realm: FEDORACAPITAL.IO
+  domain: fedoracapital.io
+  hostname: freeipa.freeipa.svc.cluster.local # MUST match the LDAP IdP URL (ldaps://636) so the cert validates
+  password: REPLACE_AT_APPLY # set at the one-time apply — never committed
+  storageClass: "" # cluster default (ocs-external-storagecluster-ceph-rbd)
+  storageSize: 5Gi
+  ingressDomain: apps.cluster-guid.example.com # from deployer.domain at apply time
+
+# ---------------------------------------------------------------------------
+# opsLdap — post-install identity setup: persona population, the FreeIPA CA for
+# the OCP-native LDAP identity provider, the OCP-native LDAP IdP (type: LDAP)
+# against FreeIPA (ldaps://636, no memberOf filter — every directory user can
+# log in to OpenShift; RHOAI access is the Auth CR's gate), the groups claim on
+# the existing Keycloak IdP (rhbk), and the scheduled LDAP group sync.
+# Enabled by default.
+# ---------------------------------------------------------------------------
+opsLdap:
+  enabled: true
+  git:
+    path: automation/gitops/cluster/infra/ops-ldap
+    <<: *git_defaults
+  freeipaNamespace: freeipa
+  oauthIdpName: rhbk # existing Keycloak (rhbk) IdP — needed for the admin user
+  realm: FEDORACAPITAL.IO
+  domain: fedoracapital.io
+  hostname: freeipa.freeipa.svc.cluster.local
+  password: REPLACE_AT_APPLY # set at the one-time apply — never committed
+
+# ---------------------------------------------------------------------------
+# rhoai-install — the RHOAI operator + platform CRs (DSCInitialization +
+# DataScienceCluster), Git-owned ("operators as code" + "custom resources as
+# code", Module 1). Base prerequisite for every module: the serving platform
+# (kserve), the MaaS aigateway component, model registry, workbenches, the
+# MLflow operator. NOTE: aigateway.modelsAsAService is NOT in the Git DSC —
+# the maasPlatform app's dsc-maas-enable hook Job enables it once the gateway
+# is up (a Git-owned field would flip-flop against that patch).
+# ---------------------------------------------------------------------------
+rhoaiInstall:
+  enabled: true
+  git:
+    path: automation/gitops/cluster/rhoai-install
+    <<: *git_defaults
+
+# ---------------------------------------------------------------------------
+# maas-platform — the Models-as-a-Service platform stack: RHCL (Kuadrant) +
+# cert-manager operators, the maas-default-gateway, the MaaS PostgreSQL, the
+# serving-path (LWS/JobSet) + observability operators, user workload
+# monitoring, the MaaS telemetry, and the dashboard/MaaS DSC enablement.
+# Prerequisite for automation/gitops/cluster/maas-model (the Lending model attaches to
+# maas-default-gateway). A Helm chart: the Route host and the gateway status
+# patch need the cluster apps domain (deployer.domain, set at the one-time
+# bootstrap apply — never in git). gatewayMode: clusterip (RHDP/bare-metal,
+# default) | loadbalancer (cloud/MetalLB).
+# ---------------------------------------------------------------------------
+maasPlatform:
+  enabled: true
+  git:
+    path: automation/gitops/cluster/maas-platform
+    <<: *git_defaults
+  gatewayMode: clusterip
+
+# ---------------------------------------------------------------------------
+# maas-model — the Lending model published through MaaS (LLMInferenceService +
+# MaaSModelRef in rhoai-lending). Pre-setup for Module 2 Exercise 6: the MaaS
+# platform stack (gateway, maas-api, authorino) is deployed by the platform
+# (DSC modelsAsAService: Managed); this app only seeds the LOB model.
+# Deliberately NO CreateNamespace: rhoai-lending is created by hand in Module 2
+# Exercise 3 (oc new-project), so the Application retries (degraded) until Ex 3
+# creates the project, then converges via selfHeal.
+# ---------------------------------------------------------------------------
+maasModel:
+  enabled: true
+  git:
+    path: automation/gitops/cluster/maas-model
+    <<: *git_defaults
+
+# ---------------------------------------------------------------------------
+# mlflow — the cluster-scoped MLflow instance (experiment tracking server) in
+# redhat-ods-applications. Pre-setup for Module 3: the custom workbench image
+# ships mlflow-skinny and the labs track experiments against this server
+# (https://mlflow.redhat-ods-applications.svc:8443/mlflow). The app enables the
+# mlflowoperator DSC component via a merge-patch sync-hook Job (an ArgoCD SSA
+# apply of a partial DSC patch would prune every component field the shared
+# argocd-controller field manager owns — the one-directional CEL rule on
+# kserve.modelsAsService blocks that) — the operator then installs the MLflow
+# CRDs, and the instance CR deploys the server (sqlite backend + 20Gi PVC).
+# The app creates the mlflow-sa service account the instance references — the
+# operator does NOT create it.
+# ---------------------------------------------------------------------------
+mlflow:
+  enabled: true
+  git:
+    path: automation/gitops/cluster/mlflow
+    <<: *git_defaults
+  namespace: redhat-ods-applications
+
+# ---------------------------------------------------------------------------
+# kueue — the Red Hat build of Kueue, installed via OLM (kueue-operator in
+# openshift-operators). Pre-setup for Module 3: the conceptual GPU scheduling
+# section inspects real Kueue CRDs and queues. NOTE: the RHOAI operator does
+# NOT manage the Kueue lifecycle in RHOAI 3.5 — both the DSC `kueue` component
+# key and the Kueue component CR reject managementState: Managed — so the OLM
+# operator is the supported install path. The app also seeds a CPU-only demo
+# quota tree (research-department Cohort + research-team ClusterQueue);
+# LocalQueues are created per-user in the exercise. No workloads — the lab
+# cluster has no GPUs (the full hands-on is the GPU Resource Management
+# workshop).
+# ---------------------------------------------------------------------------
+kueue:
+  enabled: true
+  git:
+    path: automation/gitops/cluster/kueue
+    <<: *git_defaults
+  namespace: openshift-operators
+
+# ---------------------------------------------------------------------------
+# model-registry — the namespaced ModelRegistry instance in
+# rhoai-model-registries (the DSC registriesNamespace). Pre-setup for Module 3
+# Exercise 3: the DSC modelregistry component only installs the operator and
+# the UI; the instance CR is what deploys the registry REST service + its
+# Postgres database (routes modelregistry-https/-http). v1beta1 CR — the
+# v1alpha1 API is deprecated, and rest.serviceRoute values are
+# "enabled"/"disabled".
+# ---------------------------------------------------------------------------
+modelRegistry:
+  enabled: true
+  git:
+    path: automation/gitops/cluster/model-registry
+    <<: *git_defaults
+  namespace: rhoai-model-registries
+
+# ---------------------------------------------------------------------------
+# oadp — the OADP (OpenShift API for Data Protection) operator, installed via
+# OLM (redhat-oadp-operator in openshift-adp, dedicated OperatorGroup).
+# Prerequisite for Module 6 (Backups & DR): the docs configure the backup
+# location (a real NooBaa bucket claimed from ODF via an OBC) and run the
+# backup/restore exercises against this operator. The velero.io CRDs and the
+# velero + node-agent pods are installed by the operator in response to the
+# DataProtectionApplication CR; the CR itself is created by hand in Module 6.
+# ---------------------------------------------------------------------------
+oadp:
+  enabled: true
+  git:
+    path: automation/gitops/cluster/oadp
+    <<: *git_defaults
+  namespace: openshift-adp

@@ -1,0 +1,13 @@
+{
+  "name": "ph-operations-rhoai",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Antora site for the RHOAI 3.5 Operations workshop",
+  "scripts": {
+    "build": "antora site.yml --stacktrace"
+  },
+  "dependencies": {
+    "@antora/cli": "^3.1",
+    "@antora/site-generator": "^3.1"
+  }
+}

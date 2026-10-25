@@ -1,0 +1,42 @@
+{{ if .Values.rhoaiInstall.enabled -}}
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: rhoai-install
+  namespace: openshift-gitops
+spec:
+  project: infra
+  source:
+    repoURL: {{ .Values.rhoaiInstall.git.repoURL }}
+    targetRevision: {{ .Values.rhoaiInstall.git.targetRevision }}
+    path: {{ .Values.rhoaiInstall.git.path }}
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: redhat-ods-operator
+  syncPolicy:
+    automated:
+      enabled: true
+      selfHeal: true
+    syncOptions:
+      # CLIENT-SIDE apply (no ServerSideApply): a stale argocd-controller SSA
+      # field-manager entry on the live DataScienceCluster (left over from an
+      # earlier iteration of this repo) owns spec.components fields the v2
+      # schema has since DROPPED (codeflare, datasciencepipelines). Every SSA
+      # apply prunes those ghosts and trips the one-directional CEL rule on
+      # kserve.modelsAsService ("cannot re-enable once Removed"). Client-side
+      # three-way merge doesn't consult managedFields, and it PRESERVES every
+      # live-changed field not in Git (modelsAsAService, llamastackoperator,
+      # nim.airGapped, wva, kueue defaults, ...) — last-applied != live means
+      # "someone else changed it", so nothing is reverted.
+      # The rhods CRDs are installed by the operator in response to the
+      # Subscription (~2-3 min). SkipDryRunOnMissingResource + retry bridge the
+      # gap; the DSCI/DSC apply once the CRDs exist.
+      - SkipDryRunOnMissingResource=true
+      - RespectIgnoreDifferences=true
+    retry:
+      limit: 10
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
+{{- end }}

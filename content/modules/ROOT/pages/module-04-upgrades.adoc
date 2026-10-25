@@ -1,0 +1,1015 @@
+= Module 4: Upgrades
+:navtitle: Upgrades
+:toc: macro
+:toclevels: 1
+:icons: font
+
+== Learning Objectives
+
+By the end of this module you will be able to:
+
+* Describe the RHOAI release cadence and life cycle support policy
+* Inspect operator subscriptions, installed versions, and available update channels using OLM
+* Describe the rhods-operator meta-operator model -- the ODH managed components it owns versus the external prerequisite operators it depends on, and the upstream to midstream to product flow
+* Explain the differences between manual and automatic approval strategies
+* Demonstrate operator pinning to prevent unintended dependent operator upgrades
+* Describe MaaS upgrade considerations across RHOAI 3.4, 3.5, and 3.6
+* Create a pre-upgrade checklist and understand rollback limitations
+
+[IMPORTANT]
+====
+We apply the manifests manually to the cluster in this exercise so we can see the changes and learn the process. In a production environment, you would use GitOps to apply the manifests to the cluster. We do not practice what we preach as far as GitOps in this workshop.
+====
+
+The exercises in this module are **walkthrough-style**. You will inspect and plan upgrade operations but will **not execute an actual upgrade** on the cluster. The goal is to build the skills and confidence to perform upgrades in your own environments.
+
+'''
+
+== RHOAI Release Cadence and Support Policy
+
+=== Quarterly Release Cadence
+
+Red Hat OpenShift AI follows a quarterly minor release cadence:
+
+[cols="1,1,2"]
+|===
+|Version |Release (approx.) |Key Features
+
+|RHOAI 3.3
+|Q4 2024
+|Model registry GA, Kueue integration, hardware profiles
+
+|RHOAI 3.4
+|Q1 2025
+|llm-d Tech Preview, ModelCar support, improved distributed training
+
+|RHOAI 3.5
+|Q2 2025
+|llm-d GA, DRA support (TP), MaaS metering, LocalModelCache
+
+|RHOAI 3.6
+|Q3 2025 (projected)
+|Praxis.fast MaaS, enhanced EPP, multi-cluster model registry
+|===
+
+=== Life Cycle Support
+
+RHOAI follows the https://access.redhat.com/support/policy/updates/openshift[Red Hat OpenShift product life cycle]: a time-delineated, phased life cycle in which at least four OpenShift minor versions are supported at any time, with releases forecast on a four-month cadence. All released errata remain accessible to active subscribers across the entire life cycle. For RHOAI itself, the current minor release and the previous one receive full support; older releases move to maintenance and then end of life.
+
+image::ocp-lifecycle-phases.png["OpenShift v4 life cycle phases -- Full Support, Maintenance Support, and Extended Update Support add-on terms across even-numbered EUS releases", width=100%]
+
+[cols="1,2,3"]
+|===
+|Phase |Duration |What you get
+
+|**Full Support**
+|Begins at GA of the minor version; ends after 6 months OR 90 days after the GA of the superseding minor release, whichever is later
+|Qualified Critical, Important, and Moderate CVEs (RHSAs) and urgent/selected high-priority bug fixes released as they become available; other fixes via periodic updates. Customers are expected to run the latest z-stream (4.x.z) to receive fixes.
+
+|**Maintenance Support**
+|After Full Support; ends 18 months after GA
+|Security fixes only (qualified RHSA CVEs) plus urgent/selected bug fixes at Red Hat's discretion. After the phase ends, software and documentation remain available but no technical support is provided except assistance to upgrade to a supported version.
+
+|**Extended Update Support (EUS) Add-Ons**
+|Optional add-on terms for even-numbered minor releases (for example, 4.14, 4.16)
+|Term 1 (6 months) plus Terms 2 and 3 (12 months each) extend the same release for up to 36--48 months, with technical support and backports of security and urgent bug fixes for platform-aligned operators. Included with Premium subscriptions; optional add-on for Standard.
+|===
+
+[NOTE]
+====
+Always check the https://access.redhat.com/support/policy/updates/openshift[OpenShift Container Platform Life Cycle] page for the current support matrix. Support timelines may shift with the release cadence.
+====
+
+=== Managing RHOAI and OpenShift Lifecycles Independently
+
+RHOAI and OpenShift are lifecycle-managed separately, within certain limits: the two products release on independent cadences, and several OpenShift minor versions support the same RHOAI release. For example, OpenShift 4.21.z and 4.22.z both support RHOAI 3.5.x -- you can upgrade OpenShift without touching the RHOAI subscription, and upgrade RHOAI without touching the OpenShift version. Always check the https://access.redhat.com/articles/rhoai-supported-configs[RHOAI Supported Configurations] matrix for the exact supported combinations.
+
+Good practice for the two lifecycles:
+
+* **Keep OpenShift z-streams updated** (4.21.z, 4.22.z): z-stream releases carry security and bug fixes, are drop-in updates within the same minor version, and should be applied regularly.
+
+* **Plan OpenShift minor upgrades carefully** (4.y to 4.y+1): minor releases may introduce breaking changes to Kubernetes APIs that platform operators -- and RHOAI components -- depend on. They need to be lifecycle-managed and validated against the RHOAI supported configurations before rolling out.
+
+* **Upgrade RHOAI on its own cadence** through the subscription channel (Exercises 1 and 2), coordinated with -- but independent of -- the OpenShift upgrade path.
+
+=== Dependent Operators
+
+RHOAI depends on several other operators that must be at compatible versions:
+
+[cols="1,2,1"]
+|===
+|Operator |Purpose |Update Coupling
+
+|**Red Hat OpenShift Serverless**
+|Knative Serving for the serverless KServe deployment mode only (not needed for raw deployment mode)
+|Must match RHOAI-tested version when used
+
+|**Red Hat OpenShift Service Mesh**
+|Istio sidecar injection for inference endpoints (legacy serving path)
+|Replaced by RHCL in RHOAI 3.5+ deployments
+
+|**Red Hat Connectivity Link (RHCL)**
+|API gateway and rate limiting for inference endpoints (replaces Service Mesh in newer deployments)
+|Version-sensitive; auto-upgrade risk
+
+|**Node Feature Discovery (NFD)**
+|Detects GPU hardware and labels nodes
+|Generally safe to auto-upgrade
+
+|**NVIDIA GPU Operator**
+|GPU drivers, device plugin, MIG management
+|Must match GPU driver requirements
+
+|**Kueue**
+|Batch workload scheduling and GPU quota management
+|Managed by RHOAI operator
+
+|**JobSet**
+|Distributed training jobs (TrainJob) scheduled by Kueue
+|Pinned version channel (`stable-v1.0`); must match RHOAI-tested version
+
+|**Leader Worker Set (LWS)**
+|Leader-worker pod topology for llm-d disaggregated (P/D) serving
+|Pinned version channel (`stable-v1.0`); must match RHOAI-tested version
+
+|**Cluster Observability Operator (COO)**
+|MaaS observability -- dashboards (Perses) and metrics for inference services
+|Floating channel (`stable`); version-sensitive for MaaS
+
+|**OpenTelemetry Operator**
+|Metrics export pipeline for MaaS observability and metering
+|Floating channel (`stable`); version-sensitive for MaaS
+|===
+
+'''
+
+== Exercise 1: Inspect Current RHOAI Operator Subscription and Version
+
+. View the RHOAI Operator Subscription. The Subscription CRD defines how OLM manages an operator's lifecycle. Inspect the RHOAI subscription:
++
+[source,bash,role="execute"]
+----
+oc get subscription -n redhat-ods-operator -o yaml
+----
++
+Pay attention to these key fields:
++
+[source,bash,role="execute"]
+----
+oc get subscription -n redhat-ods-operator -o jsonpath='{range .items[*]}{"Name: "}{.metadata.name}{"\n"}{"Channel: "}{.spec.channel}{"\n"}{"Source: "}{.spec.source}{"\n"}{"Install Plan Approval: "}{.spec.installPlanApproval}{"\n"}{"Current CSV: "}{.status.currentCSV}{"\n"}{"Installed CSV: "}{.status.installedCSV}{"\n\n"}{end}'
+----
+
+. Check the Installed ClusterServiceVersion. The CSV contains the full operator manifest including version, required APIs, and deployment status:
++
+[source,bash,role="execute"]
+----
+oc get csv -n redhat-ods-operator -o custom-columns='NAME:.metadata.name,PHASE:.status.phase,VERSION:.spec.version'
+----
++
+image::51-rhods-subscription.png[The rhods-operator Subscription fields and the Succeeded CSV with its InstallPlan,link=self,window=blank,width=800]
+
+. Inspect the Install Plan. The InstallPlan records what OLM will install or has installed:
++
+[source,bash,role="execute"]
+----
+oc get installplan -n redhat-ods-operator -o custom-columns='NAME:.metadata.name,CSV:.spec.clusterServiceVersionNames[*],APPROVED:.spec.approved,PHASE:.status.phase'
+----
+
+=== Verify
+
+Confirm the current RHOAI version and approval strategy:
+
+[source,bash,role="execute"]
+----
+echo "=== RHOAI Operator Status ==="
+CHANNEL=$(oc get subscription -n redhat-ods-operator -o jsonpath='{.items[0].spec.channel}')
+APPROVAL=$(oc get subscription -n redhat-ods-operator -o jsonpath='{.items[0].spec.installPlanApproval}')
+CSV=$(oc get subscription -n redhat-ods-operator -o jsonpath='{.items[0].status.installedCSV}')
+echo "Channel:  ${CHANNEL}"
+echo "Approval: ${APPROVAL}"
+echo "CSV:      ${CSV}"
+----
+
+'''
+
+== Exercise 2: Explore Available Update Channels and Versions
+
+. List Available Channels. Query the operator catalog to see which channels are available for the RHOAI operator:
++
+[source,bash,role="execute"]
+----
+oc get packagemanifest rhods-operator -n openshift-marketplace -o jsonpath='{range .status.channels[*]}{.name}{"\t"}{.currentCSV}{"\n"}{end}'
+----
++
+image::53-channels.png[packagemanifest channels for rhods-operator and the upgrade lineage,link=self,window=blank,width=850]
+
+The catalog also exposes the legacy 2.x `stable`/`fast` channels and the pre-release `alpha`/`beta` channels; channels vary by catalog version.
+
+. Understand Channel Semantics:
++
+[cols="1,3"]
+|===
+|Channel |Description
+
+|`stable-3.x`
+|The rolling stable channel for the 3.x line. Moves to each new minor release (e.g., 3.5 to 3.6) as it ships. **Recommended for production.**
+
+|`stable-3.N` (e.g., `stable-3.5`)
+|Pinned to a specific minor version. Receives z-stream patches (e.g., 3.5.1 to 3.5.2) but never jumps to a new minor version. **Use to control minor upgrades explicitly** -- this is what the lab cluster subscribes to.
+
+|`eus-3.N` (e.g., `eus-3.5`)
+|Extended Update Support channels for RHOAI on EUS OpenShift releases.
+
+|`fast-3.x`
+|Fast rolling channel -- new releases reach it before they reach `stable-3.x`. **Use for development and early testing only.**
+
+|`alpha` / `beta`
+|Pre-release builds for testing. May contain known issues. **Never use in production.**
+|===
+
+. Compare Channel Versions. Inspect what version each channel currently offers:
++
+[source,bash,role="execute"]
+----
+oc get packagemanifest rhods-operator -n openshift-marketplace -o json | python3 -c "
+import json, sys
+pkg = json.load(sys.stdin)
+channels = pkg['status']['channels']
+print(f'{\"Channel\":<20} {\"Current CSV\":<30} {\"Replaces\"}')
+print('-' * 80)
+for ch in sorted(channels, key=lambda c: c['name']):
+    replaces = ch.get('currentCSVDesc', {}).get('replaces', 'N/A')
+    print(f'{ch[\"name\"]:<20} {ch[\"currentCSV\"]:<30} {replaces}')
+"
+----
+
+=== Verify
+
+The `replaces` field in the CSV tells you the upgrade path. Confirm the current CSV's upgrade lineage:
+
+[source,bash,role="execute"]
+----
+CSV_NAME=$(oc get subscription -n redhat-ods-operator -o jsonpath='{.items[0].status.installedCSV}')
+oc get csv ${CSV_NAME} -n redhat-ods-operator -o jsonpath='{"Installed: "}{.metadata.name}{"\n"}{"Replaces: "}{.spec.replaces}{"\n"}{"Version: "}{.spec.version}{"\n"}'
+----
+
+Expected output (3.5.2 replaced 3.5.1):
+
+[source,text]
+----
+Installed: rhods-operator.3.5.2
+Replaces: rhods-operator.3.5.1
+Version: 3.5.2
+----
+
+'''
+
+== Exercise 3: Inspect Dependent Operator Subscriptions
+
+. List All Operator Subscriptions. View all operator subscriptions across the cluster to identify RHOAI dependencies:
++
+[source,bash,role="execute"]
+----
+oc get subscriptions -A -o custom-columns='NAMESPACE:.metadata.namespace,NAME:.metadata.name,CHANNEL:.spec.channel,APPROVAL:.spec.installPlanApproval,CSV:.status.installedCSV'
+----
+
+. Understand the rhods-operator as a Meta Operator. The rhods-operator does not implement the RHOAI components itself. It deploys and reconciles component controllers built from the Open Data Hub (ODH) upstream and manages two distinct kinds of dependencies:
++
+[cols="1,3"]
+|===
+|Dependency |What it means
+
+|**ODH Managed Components**
+|What the operator *owns*: the dashboard, workbenches, data science pipelines, KServe, model registry, the Kueue integration, TrustyAI, Ray, hardware profiles, and the MaaS auth/gateway APIs. Each component is exposed through the DataScienceCluster (DSC) `spec.components` API with a `managementState` (`Managed`, `Removed`, or `Unmanaged`), reconciled by a dedicated controller inside the operator, with component workloads deployed into the `redhat-ods-applications` namespace (the DSCI `spec.applicationsNamespace`).
+
+|**Prerequisite Operators (External)**
+|What the operator *depends on but does not manage*: OpenShift Serverless (Knative -- serverless KServe mode only), RHCL/Kuadrant (MaaS gateway and auth), Node Feature Discovery, and the NVIDIA GPU Operator. Administrators install these separately; the operator needs each one only when the corresponding component is enabled.
+|===
++
+The relationship to upstream, midstream, and the product:
++
+[cols="1,3"]
+|===
+|Layer |What it is
+
+|**Upstream**
+|The Open Data Hub (ODH) community project -- provides the operator and the component implementations.
+
+|**Midstream**
+|Red Hat's staging fork of the ODH operator, where upstream content is pinned, patched for the product (the DSC/DSCI APIs, RHCL integration), built, and tested.
+
+|**Downstream (product)**
+|The tested CSV ships in the `redhat-operators` catalog as `rhods-operator`, managed by OLM -- the operator this module upgrades.
+|===
++
+[NOTE]
+====
+The upstream lineage is visible on the cluster: every CRD the operator owns uses the `opendatahub.io` domain (for example, `datascienceclusters.datasciencecluster.opendatahub.io`). Operational consequences: one CSV bundles *all* managed components, so the subscription channel pins the whole stack while the external prerequisite operators upgrade independently (the pinning risk demonstrated in Exercise 4); and the DSC/DSCI custom resources are the declarative GitOps knobs for the stack -- manage those in git rather than the component workloads the operator deploys.
+====
+
+. Inspect the APIs the operator owns. The CSV's `owned` CRDs are the component APIs the meta-operator provides; the `required` list is the OLM-enforced external prerequisites -- expected to be empty on RHOAI 3.5:
++
+[source,bash,role="execute"]
+----
+CSV_NAME=$(oc get subscription -n redhat-ods-operator -o jsonpath='{.items[0].status.installedCSV}')
+oc get csv ${CSV_NAME} -n redhat-ods-operator -o jsonpath='{range .spec.customresourcedefinitions.owned[*]}{.name}{"\n"}{end}' | sort -u
+----
++
+Expected output (component APIs owned by the meta-operator):
++
+[source,text]
+----
+auths.services.platform.opendatahub.io
+datascienceclusters.datasciencecluster.opendatahub.io
+datasciencepipelines.components.platform.opendatahub.io
+dscinitializations.dscinitialization.opendatahub.io
+featuretrackers.features.opendatahub.io
+gatewayconfigs.services.platform.opendatahub.io
+hardwareprofiles.infrastructure.opendatahub.io
+kueues.components.platform.opendatahub.io
+modelregistries.components.platform.opendatahub.io
+monitorings.services.platform.opendatahub.io
+platforms.config.opendatahub.io
+rays.components.platform.opendatahub.io
+sparkoperators.components.platform.opendatahub.io
+trainers.components.platform.opendatahub.io
+trainingoperators.components.platform.opendatahub.io
+trustyais.components.platform.opendatahub.io
+----
++
+Check the `required` CRD list. OLM enforces nothing here -- missing external prerequisites surface later as DSC component conditions, not as blocked installs:
++
+[source,bash,role="execute"]
+----
+echo "Required CRDs (OLM-enforced prerequisites):"
+oc get csv ${CSV_NAME} -n redhat-ods-operator -o jsonpath='{.spec.customresourcedefinitions.required[*].name}'
+echo "(end -- empty means no enforced prerequisites)"
+----
+
+. Inspect what is enabled and where it runs. The DSC `spec.components` is the single declarative knob for all managed components -- and it is a 1..1 resource: each OpenShift cluster can only have one DataScienceCluster. The DSCI configures how the stack is initialized:
++
+[source,bash,role="execute"]
+----
+oc get datasciencecluster -o json | python3 -c "
+import json, sys
+dsc = json.load(sys.stdin)['items'][0]
+comps = dsc['spec'].get('components', {})
+print(f'{\"Component\":<24} State')
+print('-' * 40)
+for k in sorted(comps):
+    print(f'{k:<24} {comps[k].get(\"managementState\", \"-\")}')"
+----
++
+image::55-dsc-components.png[The rhods-operator subscriptions, owned CRDs, and the DSC components with management states,link=self,window=blank,width=850]
++
+Expected output on this cluster (8 components `Managed`, the rest `Removed`; your values may differ):
++
+[source,text]
+----
+Component                State
+----------------------------------------
+aigateway                Managed
+aipipelines              Managed
+dashboard                Managed
+feastoperator            Removed
+kserve                   Managed
+kueue                    Removed
+llamastackoperator       Managed
+mcplifecycleoperator     -
+mlflowoperator           Managed
+modelregistry            Managed
+ogx                      Removed
+ray                      Removed
+sparkoperator            Removed
+trainer                  Removed
+trainingoperator         Removed
+trustyai                 Removed
+workbenches              Managed
+----
++
+[NOTE]
+====
+Note the `kueue: Removed` entry: in RHOAI 3.5 the DSC `kueue` component key rejects `managementState: Managed` -- Kueue is installed by its own OLM subscription (`kueue-operator`, channel `stable-v1.4`) instead, as done in this workshop's bootstrap. A `Removed` component is not necessarily unavailable: Kueue itself runs, just managed outside the DSC.
+====
++
+[NOTE]
+====
+Because the DSC is 1..1 per cluster, a single cluster cannot host differently configured Data Science Clusters. If you want to manage many differently looking Data Science Clusters, Advanced Cluster Management (ACM) with spoke clusters or hosted control planes is a good option -- each cluster runs exactly one DSC, and the fleet is managed centrally.
+====
++
+Check the DSCI and the operator deployment. The DSC says WHAT is enabled; the DSCI (DSCInitialization) is the second singleton the operator creates, and it configures HOW the platform is initialized. The operator runs as a highly available deployment; the component controllers it deploys (dashboard-operator, kserve-controller-manager, data-science-pipelines-operator, ...) land in the DSCI `applicationsNamespace`:
++
+[source,bash,role="execute"]
+----
+oc get dscinitialization
+oc get dscinitialization default-dsci -o jsonpath='{"Applications namespace: "}{.spec.applicationsNamespace}{"\n"}{"Monitoring namespace: "}{.spec.monitoring.namespace}{"\n"}{"Trusted CA bundle: "}{.spec.trustedCABundle.managementState}{"\n"}'
+oc get deploy -n redhat-ods-operator
+----
++
+Expected output (ages and timestamps differ):
++
+[source,text]
+----
+NAME           AGE    PHASE   CREATED AT
+default-dsci   2d4h   Ready   2026-10-19T00:51:45Z
+Applications namespace: redhat-ods-applications
+Monitoring namespace: redhat-ods-monitoring
+Trusted CA bundle: Managed
+NAME             READY   UP-TO-DATE   AVAILABLE   AGE
+rhods-operator   3/3     3            3           2d4h
+----
++
+[NOTE]
+====
+The DSC answers WHAT is enabled; the DSCI answers HOW the platform initializes. It holds the settings that must exist before and around the components: the `applicationsNamespace` (`redhat-ods-applications` -- the single namespace where the operator deploys every component controller), namespace-scoped `monitoring` for RHOAI metrics (its own `redhat-ods-monitoring` namespace with metrics storage, retention, and alerting), and a `trustedCABundle` for custom CA injection. The reason for the split: initialization must precede the components and rarely changes across upgrades, while DSC component enablement is the day-2 product configuration that differs per environment. Like the DSC, the DSCI is a singleton -- `default-dsci`.
+====
+
+. Inspect Key Dependent Operators. The OpenShift Serverless operator (Knative) is only required for the serverless KServe deployment mode -- strictly speaking it is not required for RHOAI itself. This cluster serves models in raw deployment mode, so no Knative is needed and the operator is not installed:
++
+[source,bash,role="execute"]
+----
+oc get subscription -n openshift-serverless -o jsonpath='{range .items[*]}{"Operator: "}{.metadata.name}{"\n"}{"Channel: "}{.spec.channel}{"\n"}{"Approval: "}{.spec.installPlanApproval}{"\n"}{"CSV: "}{.status.installedCSV}{"\n\n"}{end}' 2>/dev/null || echo "OpenShift Serverless subscription not found"
+----
++
+The `not found` fallback is the expected output here. The Service Mesh operator (Istio) is likewise not installed on this cluster -- in RHOAI 3.5 deployments RHCL (Kuadrant) replaces it for the gateway and auth path:
++
+[source,bash,role="execute"]
+----
+oc get subscription -n openshift-operators -o jsonpath='{range .items[?(@.spec.name=="servicemeshoperator")]}{"Operator: "}{.metadata.name}{"\n"}{"Channel: "}{.spec.channel}{"\n"}{"Approval: "}{.spec.installPlanApproval}{"\n"}{"CSV: "}{.status.installedCSV}{"\n\n"}{end}' 2>/dev/null || echo "Service Mesh subscription not found in openshift-operators"
+----
++
+Check for Red Hat Connectivity Link (RHCL):
++
+[source,bash,role="execute"]
+----
+oc get subscription -A -o json | python3 -c "
+import json, sys
+subs = json.load(sys.stdin)['items']
+rhcl = [s for s in subs if 'connectivity' in s['metadata']['name'].lower() or 'rhcl' in s['metadata']['name'].lower() or 'kuadrant' in s['metadata']['name'].lower()]
+if rhcl:
+    for s in rhcl:
+        print(f'Operator: {s[\"metadata\"][\"name\"]}')
+        print(f'Namespace: {s[\"metadata\"][\"namespace\"]}')
+        print(f'Channel: {s[\"spec\"][\"channel\"]}')
+        print(f'Approval: {s[\"spec\"][\"installPlanApproval\"]}')
+        print(f'CSV: {s[\"status\"].get(\"installedCSV\", \"N/A\")}')
+else:
+    print('RHCL / Kuadrant subscription not found')
+"
+----
+
+=== Verify
+
+Create a summary of all operator versions and their approval strategies:
+
+[source,bash,role="execute"]
+----
+echo "=== RHOAI Dependency Map ==="
+echo ""
+oc get subscriptions -A -o json | python3 -c "
+import json, sys
+subs = json.load(sys.stdin)['items']
+
+# Keywords that identify RHOAI-related operators: the RHOAI operator itself,
+# its dependent operators (scheduling, topology, observability), and the
+# serving, auth, and accelerator stack. RHCL is matched by 'rhcl' -- the
+# package and subscription are named rhcl, not connectivity or kuadrant
+keywords = ['rhods', 'kueue', 'job-set', 'leader-worker',
+            'observability', 'opentelemetry',
+            'rhcl', 'authorino', 'limitador', 'dns', 'kuadrant',
+            'serverless', 'servicemesh', 'kiali', 'jaeger',
+            'gpu', 'nfd', 'oadp']
+
+relevant = []
+for s in subs:
+    name = s['metadata']['name'].lower()
+    pkg = s['spec'].get('name', '').lower()
+    if any(kw in name or kw in pkg for kw in keywords):
+        relevant.append(s)
+
+if relevant:
+    print(f'{\"Operator\":<35} {\"Channel\":<20} {\"Approval\":<12} {\"CSV\"}')
+    print('-' * 100)
+    for s in sorted(relevant, key=lambda x: x['metadata']['name']):
+        name = s['metadata']['name']
+        channel = s['spec'].get('channel', 'N/A')
+        approval = s['spec'].get('installPlanApproval', 'N/A')
+        csv = s['status'].get('installedCSV', 'N/A')
+        print(f'{name:<35} {channel:<20} {approval:<12} {csv}')
+else:
+    print('No RHOAI-related subscriptions found')
+"
+----
+
+Expected output (10 RHOAI-related subscriptions on this cluster):
+
+[source,text]
+----
+Operator                            Channel              Approval     CSV
+----------------------------------------------------------------------------------------------------
+authorino-operator-stable-redhat-operators-openshift-marketplace stable               Automatic    authorino-operator.v1.4.3
+cluster-observability-operator      stable               Automatic    cluster-observability-operator.v1.5.3
+dns-operator-stable-redhat-operators-openshift-marketplace stable               Automatic    dns-operator.v1.4.2
+job-set                             stable-v1.0          Automatic    jobset-operator.v1.0.1
+kueue-operator                      stable-v1.4          Automatic    kueue-operator.v1.4.3
+leader-worker-set                   stable-v1.0          Automatic    leader-worker-set.v1.0.1
+limitador-operator-stable-redhat-operators-openshift-marketplace stable               Automatic    limitador-operator.v1.4.2
+opentelemetry-product               stable               Automatic    opentelemetry-operator.v0.158.0-202610151241
+rhcl-operator                       stable               Automatic    rhcl-operator.v1.4.3
+rhods-operator                      stable-3.5           Automatic    rhods-operator.3.5.2
+----
+
+[WARNING]
+====
+If dependent operators have `installPlanApproval: Automatic`, they can upgrade themselves outside of your control. An auto-upgraded operator may break compatibility with the current RHOAI version. This is the primary risk addressed in Exercise 4.
+====
+
+'''
+
+== Exercise 4: Demonstrate Manual Approval Strategy and Operator Pinning
+
+. Understand Approval Strategies. OLM supports two install plan approval strategies:
+
+image::58-console-subscription-details.png[Console Subscription details: update channel stable-3.5, Automatic approval,link=self,window=blank,width=800]
++
+[cols="1,3"]
+|===
+|Strategy |Behavior
+
+|**Automatic**
+|OLM automatically approves and installs any update that appears in the subscribed channel. No human intervention required. Risk: unplanned upgrades.
+
+|**Manual**
+|OLM creates an InstallPlan but does not approve it. An administrator must explicitly approve the plan before the upgrade proceeds. Benefit: full control over timing.
+|===
+
+. View Pending Install Plans. Check whether any install plans are waiting for approval:
++
+[source,bash,role="execute"]
+----
+oc get installplan -A -o custom-columns='NAMESPACE:.metadata.namespace,NAME:.metadata.name,CSV:.spec.clusterServiceVersionNames[*],APPROVED:.spec.approved,PHASE:.status.phase' | grep -v "^NAMESPACE" | sort
+----
+
+image::57-console-subscriptions.png[OpenShift console Subscriptions page showing the rhods-operator subscription,link=self,window=blank,width=800]
+
+. Demonstrate Switching to Manual Approval (Dry Run).
++
+[CAUTION]
+====
+Do **not** execute this command on the shared cluster. It is shown here for reference. Switching a running operator to Manual approval on a shared cluster could block critical security patches.
+====
++
+To switch the RHOAI operator from Automatic to Manual approval, you would patch the subscription:
++
+[source,yaml]
+----
+# DO NOT APPLY -- reference only
+apiVersion: operators.coreos.com/v1alpha1
+kind: Subscription
+metadata:
+  name: rhods-operator
+  namespace: redhat-ods-operator
+spec:
+  channel: stable-3.5
+  installPlanApproval: Manual     # <1>
+  name: rhods-operator
+  source: redhat-operators
+  sourceNamespace: openshift-marketplace
+----
+<1> Changed from `Automatic` to `Manual`
+
+. Switch and approve via the CLI (reference only). The equivalent `oc patch` command:
++
+[source,text]
+----
+# DO NOT EXECUTE on shared cluster
+oc patch subscription rhods-operator -n redhat-ods-operator \
+  --type merge \
+  -p '{"spec":{"installPlanApproval":"Manual"}}'
+----
++
+After switching to Manual, when a new version appears you would approve the install plan:
++
+[source,text]
+----
+# DO NOT EXECUTE on shared cluster
+oc patch installplan <install-plan-name> -n redhat-ods-operator \
+  --type merge \
+  -p '{"spec":{"approved":true}}'
+----
++
+[NOTE]
+====
+Manual approval is a function of the OperatorGroup's namespace, not of a single operator: installing one operator with `installPlanApproval: Manual` causes ALL operators in that namespace to function with the Manual approval strategy, and OLM binds the upgrades of subscriptions sharing a namespace into a single InstallPlan. This is one of the main reasons for giving each operator (or tightly coupled group) its own namespace instead of the shared `openshift-operators` -- the approval strategy, RBAC, and upgrade lifecycle stay isolated. The lab cluster demonstrates both patterns: the RHOAI operator's subscription is alone in the dedicated `redhat-ods-operator` namespace, while the RHCL/Kuadrant dependencies (`rhcl-operator`, `authorino-operator`, `limitador-operator`, `kueue-operator`) share the global `openshift-operators` namespace -- switching any one of them to Manual changes the strategy for all of them. OLM v1 (the Operator Controller) replaces the Subscription/OperatorGroup/InstallPlan model with per-operator ClusterExtensions, each with its own upgrade policy, removing this shared-namespace entanglement.
+====
+
+. Operator Pinning: The RHCL Example. Operator pinning prevents a dependent operator from upgrading beyond a tested version. This is critical for operators like RHCL where a minor version bump could introduce breaking API changes.
+
+image::58b-console-subscription-yaml.png[The Subscription manifest YAML in the console,link=self,window=blank,width=800]
++
+**Why pin RHCL?**
++
+RHOAI 3.5 is tested against a specific RHCL version. If RHCL auto-upgrades to a newer release, the Kuadrant/Authorino integration may break, causing inference endpoint authentication failures.
++
+**Pinning strategy:** **Pin the subscription channel** to a specific minor version (e.g., `stable-1.1` instead of `stable`), **set Manual approval** as a safety net even within the pinned channel, and **test before approving** any install plan in a staging environment. For example, an RHCL subscription pinned to a specific channel:
++
+[source,yaml]
+----
+# Example RHCL subscription pinned to a specific channel
+apiVersion: operators.coreos.com/v1alpha1
+kind: Subscription
+metadata:
+  name: connectivity-link-operator
+  namespace: openshift-operators
+spec:
+  channel: stable-1.1              # <1>
+  installPlanApproval: Manual       # <2>
+  name: connectivity-link-operator
+  source: redhat-operators
+  sourceNamespace: openshift-marketplace
+----
+<1> Pinned to the `stable-1.1` channel -- will only receive 1.1.x patches
+<2> Manual approval adds a second layer of protection
+
+=== Verify
+
+Check which operators are pinned (using a specific version channel) versus floating (using `stable` or `fast`):
+
+[source,bash,role="execute"]
+----
+echo "=== Operator Pinning Audit ==="
+echo ""
+oc get subscriptions -A -o json | python3 -c "
+import json, sys, re
+subs = json.load(sys.stdin)['items']
+
+for s in sorted(subs, key=lambda x: x['metadata']['name']):
+    name = s['metadata']['name']
+    channel = s['spec'].get('channel', 'N/A')
+    approval = s['spec'].get('installPlanApproval', 'N/A')
+
+    # Check if channel is pinned (contains a version number)
+    is_pinned = bool(re.search(r'\d+\.\d+', channel))
+    pin_status = 'PINNED' if is_pinned else 'FLOATING'
+    manual = 'MANUAL' if approval == 'Manual' else 'AUTO'
+
+    risk = ''
+    if not is_pinned and approval == 'Automatic':
+        risk = ' ** HIGH RISK **'
+    elif not is_pinned:
+        risk = ' * moderate risk *'
+
+    print(f'  [{pin_status:8}] [{manual:6}] {name:<40} channel={channel}{risk}')
+"
+----
+
+image::59-pinning-audit.png[Operator Pinning Audit: PINNED vs FLOATING with HIGH RISK markers,link=self,window=blank,width=850]
+
+Expected output (subscriptions on this cluster -- your names, channels, and count will differ):
+
+[source,text]
+----
+  [FLOATING] [AUTO  ] authorino-operator-stable-redhat-operators-openshift-marketplace channel=stable ** HIGH RISK **
+  [PINNED  ] [AUTO  ] cephcsi-operator-stable-4.21-redhat-operators-openshift-marketplace channel=stable-4.21
+  [FLOATING] [AUTO  ] cluster-observability-operator           channel=stable ** HIGH RISK **
+  [FLOATING] [AUTO  ] dns-operator-stable-redhat-operators-openshift-marketplace channel=stable ** HIGH RISK **
+  [PINNED  ] [AUTO  ] job-set                                  channel=stable-v1.0
+  [PINNED  ] [AUTO  ] kueue-operator                           channel=stable-v1.4
+  [PINNED  ] [AUTO  ] leader-worker-set                        channel=stable-v1.0
+  [FLOATING] [AUTO  ] limitador-operator-stable-redhat-operators-openshift-marketplace channel=stable ** HIGH RISK **
+  [PINNED  ] [AUTO  ] mcg-operator-stable-4.21-redhat-operators-openshift-marketplace channel=stable-4.21
+  [PINNED  ] [AUTO  ] ocs-client-operator-stable-4.21-redhat-operators-openshift-marketplace channel=stable-4.21
+  [PINNED  ] [AUTO  ] ocs-operator-stable-4.21-redhat-operators-openshift-marketplace channel=stable-4.21
+  [PINNED  ] [AUTO  ] odf-csi-addons-operator-stable-4.21-redhat-operators-openshift-marketplace channel=stable-4.21
+  [PINNED  ] [AUTO  ] odf-dependencies                         channel=stable-4.21
+  [PINNED  ] [AUTO  ] odf-external-snapshotter-operator-stable-4.21-redhat-operators-openshift-marketplace channel=stable-4.21
+  [PINNED  ] [AUTO  ] odf-operator                             channel=stable-4.21
+  [PINNED  ] [AUTO  ] odf-prometheus-operator-stable-4.21-redhat-operators-openshift-marketplace channel=stable-4.21
+  [FLOATING] [AUTO  ] openshift-cert-manager-operator          channel=stable-v1 ** HIGH RISK **
+  [PINNED  ] [AUTO  ] openshift-gitops-operator                channel=gitops-1.21
+  [FLOATING] [AUTO  ] opentelemetry-product                    channel=stable ** HIGH RISK **
+  [PINNED  ] [AUTO  ] quay-operator                            channel=stable-3.17
+  [PINNED  ] [AUTO  ] recipe-stable-4.21-redhat-operators-openshift-marketplace channel=stable-4.21
+  [PINNED  ] [AUTO  ] rhbk-operator                            channel=stable-v26.6
+  [FLOATING] [AUTO  ] rhcl-operator                            channel=stable ** HIGH RISK **
+  [PINNED  ] [AUTO  ] rhods-operator                           channel=stable-3.5
+  [PINNED  ] [AUTO  ] rook-ceph-operator-stable-4.21-redhat-operators-openshift-marketplace channel=stable-4.21
+----
+
+The script classifies each subscription along two dimensions -- whether the channel name contains a version number (pinned) and the install plan approval strategy -- and marks the risk:
+
+[cols="1,3"]
+|===
+|Category |Meaning
+
+|**FLOATING + Automatic** -- `HIGH RISK`
+|The channel has no version pin and approval is Automatic: OLM pulls in any new release from the channel and installs it without human intervention. An auto-upgraded operator may break compatibility with the current RHOAI version -- this is the primary risk addressed in Exercise 4.
+
+|**FLOATING + Manual** -- `moderate risk`
+|The channel has no version pin but approval is Manual: OLM creates an InstallPlan for each new release and waits for you to approve it. Timing is under your control, but the version you land on is whatever the channel serves when you approve.
+
+|**PINNED** -- no marker
+|The channel name contains a version number (e.g., `stable-3.5`, `stable-v1.0`), so it only delivers z-stream patches within that minor and version drift is bounded. Note that PINNED + Automatic still installs z-stream updates unattended -- compatible by policy, but unattended; PINNED + Manual gives you control over even those.
+|===
+
+On this cluster, the RHOAI-dependent operators (rhods-operator, kueue, job-set, leader-worker-set) are all pinned, while the RHCL/Kuadrant serving stack (rhcl, authorino, limitador, dns), the observability stack (cluster-observability-operator, opentelemetry-product), and cert-manager are floating with Automatic approval -- the high-risk combination. The audit also covers platform operators (the ODF storage stack pinned to `stable-4.21`, quay, gitops, rhbk), giving you the whole cluster's pinning posture in one view.
+
+'''
+
+== Conceptual Section: Minor Version Upgrade Workflow
+
+This section walks through the process of upgrading RHOAI from one minor version to the next (e.g., 3.4 to 3.5). You will not execute these steps, but you should understand each one.
+
+=== Upgrade Sequence
+
+A minor version upgrade follows this sequence:
+
+[arabic]
+. **Read the release notes** of the version you are intending on upgrading to -- identify breaking changes, deprecated features, and new prerequisites
+. **Pre-upgrade checks** (see checklist below)
+. **Upgrade dependent operators** to RHOAI-tested versions
+. **Switch the RHOAI subscription channel** from `stable-3.4` to `stable-3.5`
+. **Approve the install plan** (if using Manual approval)
+. **Monitor the upgrade** via CSV status and pod rollouts
+. **Post-upgrade validation** of all RHOAI components
+
+[NOTE]
+====
+You can delete the operator but not the operands: uninstalling the operator (subscription + CSV) removes its controllers but leaves every operand in place -- the DataScienceCluster, DSCInitialization, workbenches, InferenceServices, model registries, and their data all survive, and reinstalling the operator re-adopts them. This is common to most operators: the operator owns the controllers, the operands are ordinary API resources. Operationally this cuts both ways during an upgrade -- a failed operator rollout does not delete user workloads, but a broken operand state also survives an operator reinstall, so it may need explicit repair.
+====
+
+=== Channel Switch
+
+The channel switch is the trigger for a minor version upgrade:
+
+[source,yaml]
+----
+# Example: switching from 3.4 to 3.5
+# DO NOT APPLY on the shared cluster
+apiVersion: operators.coreos.com/v1alpha1
+kind: Subscription
+metadata:
+  name: rhods-operator
+  namespace: redhat-ods-operator
+spec:
+  channel: stable-3.5          # <1>
+  installPlanApproval: Manual
+  name: rhods-operator
+  source: redhat-operators
+  sourceNamespace: openshift-marketplace
+----
+<1> Changed from `stable-3.4` to `stable-3.5`
+
+=== Monitoring the Upgrade
+
+After approving the install plan, monitor the rollout:
+
+[source,text]
+----
+# Watch CSV transition (do not run -- reference only)
+watch oc get csv -n redhat-ods-operator
+
+# Watch component pods restart
+watch oc get pods -n redhat-ods-applications
+
+# Check DataScienceCluster health
+watch oc get datasciencecluster -A -o jsonpath='{.items[0].status.phase}'
+----
+
+The upgrade is complete when:
+
+* The new CSV shows `Phase: Succeeded`
+* All pods in `redhat-ods-applications` are in `Running` state
+* The DataScienceCluster shows `Phase: Ready`
+
+'''
+
+== Conceptual Section: MaaS Version Differences (3.4 to 3.5 to 3.6)
+
+Model-as-a-Service (MaaS) is the managed inference offering within RHOAI. Its architecture has evolved significantly across recent releases.
+
+=== Version Comparison
+
+[cols="1,2,2,2"]
+|===
+|Aspect |RHOAI 3.4 |RHOAI 3.5 |RHOAI 3.6 (projected)
+
+|**Serving stack**
+|KServe + vLLM (single-model)
+|KServe + llm-d GA (distributed)
+|KServe + llm-d + Praxis.fast runtime
+
+|**Routing**
+|Istio / Service Mesh gateway
+|EPP (KV-cache-aware)
+|Enhanced EPP with session affinity
+
+|**API Gateway**
+|Service Mesh + 3scale (optional)
+|RHCL / Kuadrant (replaces 3scale)
+|RHCL with per-model rate limits
+
+|**Metering**
+|Not available
+|External metering (Dev Preview)
+|Full metering integration with cost attribution
+
+|**Multi-tenancy**
+|Namespace isolation only
+|Namespace + RBAC-scoped model access
+|Hierarchical tenancy with project groups
+
+|**Autoscaling**
+|HPA on CPU/memory
+|KPA + HPA with custom GPU metrics
+|Predictive autoscaling (TP)
+
+|**MIG support**
+|Static MIG only
+|Static + Dynamic MIG
+|Dynamic MIG + DRA scheduling
+|===
+
+=== Upgrade Considerations for MaaS
+
+When upgrading a cluster that runs MaaS workloads, pay special attention to:
+
+[arabic]
+. **Inference downtime**: Model serving endpoints may be briefly unavailable during the operator upgrade. Plan a maintenance window.
+
+. **RHCL version coupling**: The API gateway configuration format may change between versions. Test RHCL + RHOAI version combinations in staging.
+
+. **EPP configuration migration**: EPP routing policies from 3.4 are not automatically migrated to the 3.5 format. Review the migration guide in the release notes.
+
+. **vLLM to llm-d migration**: Models deployed with standalone vLLM in 3.4 should be migrated to llm-d InferenceServices in 3.5 for ongoing support.
+
+. **Metering data**: The metering schema changes between 3.5 Dev Preview and 3.6 GA. Export metering data before upgrading if you need historical records.
+
+'''
+
+== Conceptual Section: Pre-Upgrade Checklist and Rollback Considerations
+
+=== Pre-Upgrade Checklist
+
+Complete these checks before starting any RHOAI upgrade:
+
+[cols="1,4,1"]
+|===
+|# |Check |Status
+
+|1
+|**Read the release notes** for the target version. Identify breaking changes, deprecated features, and new prerequisites.
+|[ ]
+
+|2
+|**Verify OpenShift version compatibility**. Check the https://access.redhat.com/articles/rhoai-supported-configs[RHOAI Supported Configurations] matrix.
+|[ ]
+
+|3
+|**Check dependent operator versions**. Ensure Serverless, Service Mesh/RHCL, NFD, and GPU Operator are at tested versions.
+|[ ]
+
+|4
+|**Back up RHOAI resources** using OADP (covered in Module 6). At minimum, back up the `redhat-ods-applications` and `redhat-ods-operator` namespaces.
+|[ ]
+
+|5
+|**Verify the DataScienceCluster is healthy**. All enabled components reconciled and Ready before starting the upgrade.
+|[ ]
+
+|6
+|**Document current model serving endpoints** and their configurations. Record InferenceService URLs and health status.
+|[ ]
+
+|7
+|**Notify users** of the maintenance window. Active workbenches and pipeline runs will be interrupted.
+|[ ]
+
+|8
+|**Drain active pipeline runs**. Wait for in-progress pipeline runs to complete or cancel them gracefully.
+|[ ]
+
+|9
+|**Test in staging first**. Never upgrade production without validating the exact upgrade path in a non-production cluster.
+|[ ]
+
+|10
+|**Verify cluster health**. All nodes Ready, no degraded ClusterOperators, sufficient disk and memory headroom.
+|[ ]
+|===
+
+Check DataScienceCluster health before an upgrade. The DSC is declared in the GitOps config repository -- what is in git is what runs on the cluster -- so the pre-upgrade task is a health check, not a manual backup:
+
+[source,bash,role="execute"]
+----
+echo "=== DataScienceCluster Health ==="
+oc get datasciencecluster -A
+echo ""
+
+UNHEALTHY_COUNT=$(oc get datasciencecluster default-dsc -o json | python3 -c "
+import json, sys
+d = json.load(sys.stdin)
+conds = d.get('status', {}).get('conditions', [])
+
+# A False condition is expected when the component is intentionally Removed;
+# anything else is an enabled component that is not ready
+unhealthy = [c for c in conds
+             if c.get('status') != 'True' and c.get('reason', '') != 'Removed']
+removed = sum(1 for c in conds if c.get('reason') == 'Removed')
+ready = len(conds) - removed - len(unhealthy)
+print(f'enabled components ready: {ready}/{len(conds) - removed} ({removed} removed)', file=sys.stderr)
+if unhealthy:
+    for c in unhealthy:
+        print('  NOT READY: ' + c['type'] + ' (' + c.get('reason', '') + ')', file=sys.stderr)
+print(len(unhealthy))
+")
+echo "Unhealthy components: ${UNHEALTHY_COUNT}"
+if [ "${UNHEALTHY_COUNT}" -gt 0 ]; then
+    echo "WARNING: Resolve unhealthy DataScienceCluster components before upgrading!"
+fi
+----
+
+image::60-preupgrade-health.png[DSC Ready and cluster operator health before an upgrade,link=self,window=blank,width=800]
+
+On a healthy cluster the DSC shows `READY=True` and the only `False` conditions are intentionally `Removed` components.
+
+Check cluster operator health before an upgrade:
+
+[source,bash,role="execute"]
+----
+echo "=== Cluster Operator Health ==="
+oc get clusteroperators -o custom-columns='NAME:.metadata.name,AVAILABLE:.status.conditions[?(@.type=="Available")].status,PROGRESSING:.status.conditions[?(@.type=="Progressing")].status,DEGRADED:.status.conditions[?(@.type=="Degraded")].status' | head -20
+----
+
+[source,bash,role="execute"]
+----
+DEGRADED_COUNT=$(oc get clusteroperators -o json | python3 -c "
+import json,sys
+cos = json.load(sys.stdin)['items']
+degraded = [co['metadata']['name'] for co in cos
+            for c in co['status']['conditions']
+            if c['type']=='Degraded' and c['status']=='True']
+print(len(degraded))
+if degraded:
+    for d in degraded:
+        print(f'  DEGRADED: {d}', file=sys.stderr)
+")
+echo "Degraded operators: ${DEGRADED_COUNT}"
+if [ "${DEGRADED_COUNT}" -gt 0 ]; then
+    echo "WARNING: Resolve degraded operators before upgrading!"
+fi
+----
+
+=== Rollback Considerations
+
+[WARNING]
+====
+OLM does **not** support automatic operator rollback. Once an operator upgrade completes, the previous CSV is removed. Rollback requires manual intervention and is not guaranteed to work.
+====
+
+The best advice is to avoid rollback altogether and fix failed upgrades in place (fix forward). In some cases pinning the operator to the previous version and waiting for the next fixed z-stream release may be the best option.
+
+**What rollback options exist:**
+
+[cols="1,3,1"]
+|===
+|Option |Description |Reliability
+
+|**OADP restore**
+|Restore operator namespace from a pre-upgrade OADP backup. Restores CRDs, deployments, and custom resources.
+|Medium -- may conflict with cluster state
+
+|**Reinstall previous version**
+|Uninstall the operator, clean up CRDs, and reinstall the previous version from its channel. Data loss risk for any resources managed by the operator.
+|Low -- data loss likely (this may be acceptable depending on the use case)
+
+|**Channel rollback**
+|Switch the subscription back to the previous channel (e.g., `stable-3.5` back to `stable-3.4`). Only works if OLM has not garbage-collected the old CSV bundle.
+|Very low -- rarely works in practice (effectively reinstalls the operator from scratch)
+
+|**Cluster restore**
+|Restore the entire cluster from an infrastructure backup (etcd snapshot). Reverts everything, not just the operator.
+|High -- but reverts all changes
+|===
+
+**Best practice:** Treat RHOAI upgrades as one-way operations. Invest in pre-upgrade testing in staging environments rather than relying on rollback.
+
+'''
+
+== Module summary
+
+In this module you:
+
+* **Reviewed the RHOAI release cadence** -- quarterly minor releases with full support for the current and previous minor versions
+* **Inspected operator subscriptions** using OLM to view installed versions, channels, approval strategies, and install plans
+* **Described the rhods-operator meta-operator model** -- the ODH managed components it owns through the DSC API versus the external prerequisite operators it depends on, and the upstream ODH to midstream to product flow
+* **Explored update channels** and understood the difference between `stable-3.x` (pinned), `fast` (floating), and `candidate` (pre-release) channels
+* **Mapped dependent operators** and identified which ones are coupled to RHOAI version compatibility (Serverless, Service Mesh, RHCL, GPU Operator)
+* **Demonstrated operator pinning** using channel-specific subscriptions and Manual approval to prevent unintended dependent operator upgrades, with RHCL as the primary example
+* **Compared MaaS architecture** across RHOAI 3.4, 3.5, and the projected 3.6, highlighting serving stack evolution, API gateway changes, and metering capabilities
+* **Built a pre-upgrade checklist** covering release note review, compatibility verification, backup procedures, and user notification
+* **Understood rollback limitations** -- OLM does not support automatic rollback, making pre-upgrade testing essential
+
+=== Next Steps
+
+Proceed to xref:module-05-observe-debug.adoc[Module 5: Observe & Debug] to learn about RHOAI monitoring, metrics export, and the llm-d Perses dashboards.

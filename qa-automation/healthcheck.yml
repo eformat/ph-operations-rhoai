@@ -1,0 +1,146 @@
+---
+# ============================================================================
+# HEALTHCHECK — Post-provisioning environment readiness check
+# ============================================================================
+#
+# Purpose:
+#   Validates that the workshop environment is healthy BEFORE students start.
+#   The RHOAI 3.5 Operations workshop runs on a PRE-PROVISIONED cluster: the
+#   GitOps cluster layer (automation/gitops/cluster/) deploys RHOAI, the MaaS
+#   platform, FreeIPA/LDAP identity, and the per-module workloads; the
+#   zt-showroom-deployer chart deploys the showroom UI.
+#
+# Scope:
+#   Only checks resources deployed by provisioning automation (the cluster
+#   layer + the showroom deployer).
+#   Does NOT check anything students apply during the lab (e.g. Auth CR,
+#   RoleBindings, OADP backups).
+#
+# When it runs:
+#   - Manually: ansible-playbook qa-automation/healthcheck.yml
+#     (with a cluster-admin kubeconfig in the environment)
+#
+# Exit codes:
+#   0 = environment ready for students
+#   2 = one or more checks failed — investigate before seating students
+#
+# Adding checks for your lab:
+#   1. Only add checks for resources YOUR provisioning automation deploys
+#   2. Use kubernetes.core.k8s_info for pod/route checks (idempotent, no side effects)
+#   3. Use ansible.builtin.command for oc CLI checks (e.g. oc whoami)
+#   4. Every check should have a clear, descriptive name that ops can read at a glance
+#   5. Keep it fast — healthcheck should complete in under 30 seconds
+# ============================================================================
+
+- name: Environment Health Check
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  module_defaults:
+    group/kubernetes.core.k8s:
+      kubeconfig: "{{ k8s_kubeconfig | default(omit) }}"
+  vars:
+    # The namespace the showroom deployer chart installs into.
+    # Mirrors automation/showroom-deployer/values-rhoai-operations.yaml.
+    showroom_namespace: "{{ showroom_ns | default('showroom-rhoai-operations') }}"
+  tasks:
+
+    # -- Check 1: Can we reach the cluster at all? ---------------------------
+    - name: OpenShift API is reachable
+      ansible.builtin.command: oc whoami
+      changed_when: false
+
+    # -- Check 2: Showroom pod (lab UI) --------------------------------------
+    # The showroom pod is deployed by the zt-showroom-deployer chart
+    # (automation/showroom-deployer/). If it is not running, students
+    # cannot see lab instructions.
+    - name: Showroom pod is running
+      kubernetes.core.k8s_info:
+        api_version: v1
+        kind: Pod
+        namespace: "{{ showroom_namespace }}"
+        label_selectors:
+          - app.kubernetes.io/name=showroom
+      register: showroom_pods
+      failed_when: >-
+        showroom_pods.resources | length == 0 or
+        showroom_pods.resources | selectattr('status.phase', 'equalto', 'Running') | list | length == 0
+
+    # -- Check 3: Showroom route (external access) ---------------------------
+    # Verifies the OpenShift Route exists and has been admitted by the router.
+    - name: Showroom route exists and is admitted
+      kubernetes.core.k8s_info:
+        api_version: route.openshift.io/v1
+        kind: Route
+        name: showroom
+        namespace: "{{ showroom_namespace }}"
+      register: showroom_route
+      failed_when: >-
+        showroom_route.resources | length == 0 or
+        showroom_route.resources[0].status.ingress | default([]) | length == 0
+
+    # -- Check 4: ArgoCD cluster layer is synced ------------------------------
+    # The GitOps cluster layer (automation/gitops/cluster/) creates these
+    # Applications. If they are missing or not synced, the platform is not ready.
+    - name: Cluster layer ArgoCD applications are synced
+      kubernetes.core.k8s_info:
+        api_version: argoproj.io/v1alpha1
+        kind: Application
+        namespace: openshift-gitops
+      register: argocd_apps
+      failed_when: >-
+        argocd_apps.resources
+        | selectattr('metadata.name', 'in', ['rhoai-install', 'maas-platform'])
+        | selectattr('status.sync.status', 'equalto', 'Synced')
+        | list | length < 2
+
+    # -- Check 5: FreeIPA directory (identity) --------------------------------
+    # Deployed by the cluster layer infra application. The install takes
+    # 15+ minutes on a fresh cluster — a missing pod here may just be slow.
+    - name: FreeIPA pod is running
+      kubernetes.core.k8s_info:
+        api_version: v1
+        kind: Pod
+        namespace: freeipa
+      register: freeipa_pods
+      failed_when: >-
+        freeipa_pods.resources | length == 0 or
+        freeipa_pods.resources | selectattr('status.phase', 'equalto', 'Running') | list | length == 0
+
+    # -- Check 6: RHOAI operator installed ------------------------------------
+    # The cluster layer rhoai-install Application owns the operator Subscription
+    # and the DSC/DSCI.
+    - name: RHOAI operator CSV is Succeeded
+      ansible.builtin.command: >-
+        oc get csv -n redhat-ods-operator
+        -l operators.coreos.com/rhods-operator.redhat-ods-operator
+        -o jsonpath='{.items[0].status.phase}'
+      register: rhods_csv
+      failed_when: rhods_csv.stdout != 'Succeeded'
+      changed_when: false
+
+    # -- Check 7: DataScienceCluster is Ready ---------------------------------
+    - name: DataScienceCluster phase is Ready
+      kubernetes.core.k8s_info:
+        api_version: datasciencecluster.opendatahub.io/v2
+        kind: DataScienceCluster
+        name: default-dsc
+      register: dsc
+      failed_when: >-
+        dsc.resources | length == 0 or
+        dsc.resources[0].status.phase | default('') != 'Ready'
+
+    # -- Check 8: Keycloak (platform admin identity provider) -----------------
+    # Pre-provisioned by the cluster provisioning; used for the platform admin
+    # login (learners log in via FreeIPA).
+    - name: Keycloak pod is running
+      kubernetes.core.k8s_info:
+        api_version: v1
+        kind: Pod
+        namespace: keycloak
+        label_selectors:
+          - app=keycloak
+      register: kc_pods
+      failed_when: >-
+        kc_pods.resources | length == 0 or
+        kc_pods.resources | selectattr('status.phase', 'equalto', 'Running') | list | length == 0
