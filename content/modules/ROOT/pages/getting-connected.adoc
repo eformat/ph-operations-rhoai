@@ -15,12 +15,12 @@ image::01-console-home.png[OpenShift web console home, logged in as the admin us
 
 Log in with:
 
-* **Username**: `{user}`
-* **Password**: `{password}`
+* *Username*: `{user}`
+* *Password*: `{password}`
 
 === OpenShift CLI
 
-Open the terminal on the right side of this page and log into OpenShift:
+Open the terminal on the right side of this page and log into OpenShift with the `oc` command-line interface (CLI):
 
 [source,bash,role="execute",subs="specialcharacters,attributes"]
 ----

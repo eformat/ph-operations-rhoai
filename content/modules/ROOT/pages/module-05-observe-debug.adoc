@@ -9,7 +9,7 @@
 By the end of this module you will be able to:
 
 * Navigate the built-in RHOAI 3.5 monitoring dashboards and interpret key platform metrics
-* Query model serving metrics (inference latency, throughput, error rates) with PromQL
+* Query model serving metrics (inference latency, throughput, error rates) with Prometheus Query Language (PromQL)
 * Configure Prometheus remote-write to export RHOAI metrics to an external monitoring stack
 * Locate and read RHOAI audit logs through the OpenShift logging subsystem
 * Describe the llm-d Perses observability dashboards and their role in LLM serving visibility
@@ -24,7 +24,7 @@ We apply the manifests manually to the cluster in this exercise so we can see th
 
 RHOAI 3.5 ships with built-in monitoring that surfaces key platform health metrics through the OpenShift web console. In this exercise you will tour those dashboards and identify the metrics that matter most for day-2 operations.
 
-. Open the RHOAI Metrics Dashboard. Open the OpenShift console and navigate to **Observe -> Dashboards**. Select the **RHOAI** dashboard from the dashboard dropdown.
+. Open the RHOAI Metrics Dashboard. Open the OpenShift console and navigate to *Observe -> Dashboards*. Select the *RHOAI* dashboard from the dashboard dropdown.
 +
 image::61-console-observe-dashboards.png[OpenShift console Observe Dashboards with the Model Serving LLM dashboards,link=self,window=blank,width=800]
 +
@@ -32,7 +32,7 @@ You can also reach the metrics view from the RHOAI dashboard itself. Open the RH
 +
 {rhoai_dashboard_url}
 +
-Navigate to **Settings -> Cluster settings** and confirm that the *Usage data collection* toggle is enabled. This controls whether the platform emits telemetry to the in-cluster Prometheus instance.
+Navigate to *Settings -> Cluster settings* and confirm that the *Usage data collection* toggle is enabled. This controls whether the platform emits telemetry to the in-cluster Prometheus instance.
 
 . Inspect the Data Science Cluster Health. Verify that the RHOAI monitoring stack is running -- the data-science monitoring stack pods live in the `redhat-ods-monitoring` namespace:
 +
@@ -56,7 +56,7 @@ prometheus-data-science-monitoringstack-0                     3/3     Running   
 thanos-querier-data-science-thanos-querier-74b6964bcd-bvc9x   1/1     Running   0          2d18h
 ----
 
-. Query RHOAI Component Health Metrics. Use the OpenShift metrics console (**Observe -> Metrics**) or the CLI to query component health. The RHOAI monitoring stack runs its own Prometheus in `redhat-ods-monitoring` -- the platform Prometheus in `openshift-monitoring` does not scrape RHOAI targets. The following PromQL query returns the readiness of the monitoring stack scrape targets:
+. Query RHOAI Component Health Metrics. Use the OpenShift metrics console (*Observe -> Metrics*) or the CLI to query component health. The RHOAI monitoring stack runs its own Prometheus in `redhat-ods-monitoring` -- the platform Prometheus in `openshift-monitoring` does not scrape RHOAI targets. The following PromQL query returns the readiness of the monitoring stack scrape targets:
 +
 [source,bash,role="execute"]
 ----
@@ -97,7 +97,7 @@ oc exec -n redhat-ods-monitoring prometheus-data-science-monitoringstack-0 -c pr
   python3 -m json.tool | head -30
 ----
 +
-In the OpenShift console, navigate to **Observe -> Dashboards -> NVIDIA DCGM Exporter** to see a pre-built dashboard with GPU utilization, memory, temperature, and power draw panels.
+In the OpenShift console, navigate to *Observe -> Dashboards -> NVIDIA DCGM Exporter* to see a pre-built dashboard with GPU utilization, memory, temperature, and power draw panels.
 +
 image::66b-console-metrics-query.png[Observe Metrics query browser: the RHOAI scrape targets with up 1,link=self,window=blank,width=800]
 
@@ -152,6 +152,8 @@ Expected output shows the series collected per namespace -- the monitoring stack
             }
 ----
 
+Now that you have confirmed the monitoring stack is healthy, let's drill into the metrics that matter most for day-2 serving -- inference latency, throughput, and error rates.
+
 == Exercise 2: Query Model Serving Metrics with Prometheus
 
 When models are served through KServe or ModelMesh, the serving runtimes expose Prometheus metrics on inference performance. In this exercise you will query those metrics directly.
@@ -168,7 +170,7 @@ oc get inferenceservice -n {project_name}
 If you do not have an InferenceService deployed from earlier modules, you can still review the PromQL queries below. The metric names are standard across all KServe and vLLM deployments.
 ====
 
-. Query Inference Latency. Inference latency is one of the most important SLIs for model serving. Query the p99 end-to-end request duration over the last 5 minutes:
+. Query Inference Latency. Inference latency is one of the most important Service Level Indicators (SLIs) for model serving. Query the p99 end-to-end request duration over the last 5 minutes:
 +
 [source,bash,role="execute"]
 ----
@@ -272,11 +274,13 @@ NAME                    AGE
 model-serving-alerts    10s
 ----
 
+Your new alerts fire inside the cluster's own Prometheus -- if the cluster itself is unreachable, so is your visibility into it. Exercise 3 closes that gap by exporting RHOAI metrics to an external monitoring stack through remote-write.
+
 == Exercise 3: Configure Metrics Export via Remote-Write
 
 In production environments you often need to ship RHOAI metrics to an external monitoring platform (Datadog, Grafana Cloud, Splunk, a central Thanos instance). OpenShift supports this through Prometheus remote-write configuration.
 
-. Understand the Remote-Write Architecture. Prometheus remote-write sends a copy of scraped metrics to one or more remote endpoints. The configuration is applied through the cluster monitoring ConfigMap. The flow is:
+. Understand the Remote-Write Architecture. Prometheus remote-write sends a copy of scraped metrics to one or more remote endpoints -- typically an external time series database (TSDB). The configuration is applied through the cluster monitoring ConfigMap. The flow is:
 +
 image::66-remote-write-config.png[The cluster-monitoring-config ConfigMap with the remote-write block,link=self,window=blank,width=800]
 +
@@ -286,12 +290,15 @@ RHOAI Components --> In-cluster Prometheus --> remote-write --> External TSDB
 
 . View the Current Cluster Monitoring Configuration. Inspect the current cluster monitoring config:
 +
+[NOTE]
+====
+On a fresh cluster the `cluster-monitoring-config` ConfigMap may not exist yet. This is expected -- remote-write is configured later in this exercise, and the cluster monitoring operator creates the ConfigMap only when a configuration is first applied.
+====
++
 [source,bash,role="execute"]
 ----
 oc get configmap cluster-monitoring-config -n openshift-monitoring -o yaml
 ----
-+
-If this ConfigMap does not exist or is empty, that is expected in a fresh cluster.
 
 . Configure a Remote-Write Endpoint
 +
@@ -346,7 +353,7 @@ oc create secret generic remote-write-credentials \
 +
 [WARNING]
 ====
-The password above is a placeholder. In production, use a strong credential and manage it through your secrets management solution (Vault, External Secrets Operator, or RHACS secure configs).
+The password above is a placeholder. In production, use a strong credential and manage it through your secrets management solution (Vault, External Secrets Operator, or Red Hat Advanced Cluster Security (RHACS) secure configs).
 ====
 
 === Verify
@@ -366,6 +373,8 @@ oc get configmap cluster-monitoring-config -n openshift-monitoring -o jsonpath='
 ----
 
 Expected output should show your `remoteWrite` block with the URL and relabel config.
+
+Metrics tell you what is happening; they rarely tell you who did it. Exercise 4 completes the observability picture by walking the RHOAI audit and controller logs.
 
 == Exercise 4: View RHOAI Audit Logs
 
@@ -428,25 +437,25 @@ llm-d is Red Hat's open-source inference gateway for serving large language mode
 
 The llm-d Perses dashboards offer purpose-built panels for LLM serving operations:
 
-* **Request flow**: End-to-end request lifecycle from ingress through the inference gateway to the model backend, including queue depth and scheduling latency
-* **Token throughput**: Tokens per second (input and output) across model replicas, broken down by model and endpoint
-* **KV cache utilization**: Key-value cache hit rates and memory pressure, which directly impact inference latency for multi-turn conversations
-* **Prefill vs. decode split**: Separate panels for the prefill phase (processing the input prompt) and the decode phase (generating output tokens), because these have very different resource profiles
-* **Replica health**: Per-replica health status, restart counts, and GPU utilization, helping operators identify hot spots in a multi-replica deployment
+* *Request flow*: End-to-end request lifecycle from ingress through the inference gateway to the model backend, including queue depth and scheduling latency
+* *Token throughput*: Tokens per second (input and output) across model replicas, broken down by model and endpoint
+* *KV cache utilization*: Key-value cache hit rates and memory pressure, which directly impact inference latency for multi-turn conversations
+* *Prefill vs. decode split*: Separate panels for the prefill phase (processing the input prompt) and the decode phase (generating output tokens), because these have very different resource profiles
+* *Replica health*: Per-replica health status, restart counts, and GPU utilization, helping operators identify hot spots in a multi-replica deployment
 
 === How Perses Differs from Grafana
 
-Perses is a CNCF project designed as a cloud-native alternative to Grafana. Key differences for RHOAI operators:
+Perses is a Cloud Native Computing Foundation (CNCF) project designed as a cloud-native alternative to Grafana. Key differences for RHOAI operators:
 
-* **Dashboard-as-code**: Perses dashboards are defined as Kubernetes custom resources (CRDs), making them GitOps-native
-* **No separate deployment**: When used with llm-d, the dashboards are deployed as part of the llm-d Helm chart
-* **PromQL native**: Perses queries the same Prometheus backend that OpenShift monitoring uses
+* *Dashboard-as-code*: Perses dashboards are defined as Kubernetes custom resources (CRDs), making them GitOps-native
+* *No separate deployment*: When used with llm-d, the dashboards are deployed as part of the llm-d Helm chart
+* *PromQL native*: Perses queries the same Prometheus backend that OpenShift monitoring uses
 
 === When to Use llm-d Perses Dashboards
 
 Use the llm-d Perses dashboards when:
 
-* You are serving LLMs through llm-d (not OVMS or standalone vLLM)
+* You are serving LLMs through llm-d (not OpenVINO Model Server (OVMS) or standalone vLLM)
 * You need token-level throughput visibility that generic Prometheus dashboards do not provide
 * You want GitOps-managed dashboard definitions alongside your model serving manifests
 
@@ -459,24 +468,24 @@ llm-d Perses dashboards are deployed as part of the llm-d serving stack. If you 
 
 [CAUTION]
 ====
-MaaS (Model as a Service) external metering is a **Dev/Tech Preview** feature targeted for RHOAI 3.6. It is not supported for production use in RHOAI 3.5. The architecture described here is subject to change. Do not build production billing or chargeback systems on this interface until it reaches General Availability.
+MaaS (Model as a Service) external metering is a *Dev/Tech Preview* feature targeted for RHOAI 3.6. It is not supported for production use in RHOAI 3.5. The architecture described here is subject to change. Do not build production billing or chargeback systems on this interface until it reaches General Availability.
 ====
 
 === What MaaS External Metering Solves
 
 Organizations that offer model serving as an internal service (platform teams providing LLM inference to application teams) need a way to:
 
-* **Meter usage per tenant**: Track token consumption, request counts, and GPU-hours per team or project
-* **Charge back costs**: Allocate infrastructure costs to the consuming teams
-* **Enforce quotas**: Prevent a single tenant from monopolizing shared inference capacity
+* *Meter usage per tenant*: Track token consumption, request counts, and GPU-hours per team or project
+* *Charge back costs*: Allocate infrastructure costs to the consuming teams
+* *Enforce quotas*: Prevent a single tenant from monopolizing shared inference capacity
 
 === Planned Architecture (3.6 Dev/Tech Preview)
 
 The MaaS metering architecture introduces three components:
 
-. **Metering sidecar**: A sidecar container injected alongside the model serving runtime that intercepts inference requests and emits usage records
-. **Metering aggregator**: A cluster-level service that collects usage records from all metering sidecars and produces aggregated reports per namespace, user, and model
-. **Export API**: A REST API that external billing systems can poll for usage summaries, or that can push usage events to external systems via webhooks
+. *Metering sidecar*: A sidecar container injected alongside the model serving runtime that intercepts inference requests and emits usage records
+. *Metering aggregator*: A cluster-level service that collects usage records from all metering sidecars and produces aggregated reports per namespace, user, and model
+. *Export API*: A REST API that external billing systems can poll for usage summaries, or that can push usage events to external systems via webhooks
 
 ----
 Inference Request
@@ -503,14 +512,18 @@ When RHOAI 3.6 ships with MaaS metering in Dev/Tech Preview, you will be able to
 
 == Module summary
 
-In this module you:
+**What you accomplished:**
 
-* Explored the built-in RHOAI monitoring dashboards and verified that the monitoring stack is healthy
-* Queried model serving metrics for inference latency, throughput, and error rates using PromQL
-* Created alerting rules for high latency and error rate conditions
-* Configured Prometheus remote-write to export RHOAI metrics to an external monitoring endpoint
-* Inspected RHOAI operator, dashboard, and model controller logs for audit and debugging
-* Reviewed the llm-d Perses dashboards and their role in LLM-specific observability
-* Learned about the MaaS external metering architecture coming as a Dev/Tech Preview in RHOAI 3.6
+* Explored the RHOAI monitoring dashboards and queried model serving metrics with PromQL.
+* Created a PrometheusRule alert for high inference latency and error rates.
+* Configured Prometheus remote-write to export RHOAI metrics to an external monitoring endpoint.
 
-Proceed to xref:module-06-backups-dr.adoc[Module 6: Backups & Disaster Recovery].
+**Key takeaways:**
+
+* The RHOAI monitoring stack runs its own Prometheus in the `redhat-ods-monitoring` namespace -- the platform Prometheus in `openshift-monitoring` does not scrape RHOAI targets.
+* A `PrometheusRule` turns serving thresholds such as p99 latency and error rate into alerts that fire before users notice degradation.
+* Remote-write `writeRelabelConfigs` control exactly which metrics leave the cluster, so the external endpoint receives only serving and GPU metrics rather than the full corpus.
+
+**Next steps:**
+
+With dashboards, alerts, and metrics export in place, the platform is observable. The last operational safeguard is recoverability -- proceed to xref:module-06-backups-dr.adoc[Module 6: Backups & Disaster Recovery] to back up and restore RHOAI resources.

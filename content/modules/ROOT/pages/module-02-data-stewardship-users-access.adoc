@@ -26,11 +26,11 @@ We apply the manifests manually to the cluster in this exercise so we can see th
 
 The identity provider plumbing for this module is pre-provisioned via GitOps in the workshop's automation repository:
 
-* **FreeIPA** deployed in-cluster as an LDAP directory (realm FEDORACAPITAL.IO)
-* **OCP-native LDAP identity provider** (type: LDAP) -- the OCP OAuth authenticates directory users directly against FreeIPA (ldaps://636) -- every directory user can log in to OpenShift, since OpenShift is the platform layer; exactly how organisations wire their existing directory into OpenShift
-* **Keycloak for the platform admin** -- the existing Keycloak (rhbk) IdP continues to authenticate the platform admin
-* **Users and persona groups** created in FreeIPA
-* **MaaS governance** for the Lending model -- a modelcar published with performance and standard subscription tiers bound to the persona groups (`maas/`)
+* *FreeIPA* deployed in-cluster as an LDAP directory (realm FEDORACAPITAL.IO)
+* *OpenShift Container Platform (OCP)-native LDAP identity provider* (type: LDAP) -- the OCP OAuth authenticates directory users directly against FreeIPA (ldaps://636) -- every directory user can log in to OpenShift, since OpenShift is the platform layer; exactly how organisations wire their existing directory into OpenShift
+* *Keycloak for the platform admin* -- the existing Keycloak (rhbk) IdP continues to authenticate the platform admin
+* *Users and persona groups* created in FreeIPA
+* *MaaS governance* for the Lending model -- a modelcar published with performance and standard subscription tiers bound to the persona groups (`maas/`)
 
 [NOTE]
 ====
@@ -194,7 +194,7 @@ spec:
     - rhods-users
 ----
 <1> *Auth CR* -- the RHOAI authorization object; `kind: Auth` from `services.platform.opendatahub.io`.
-<2> *Singleton* -- the CRD requires the name to be exactly `auth`; the operator creates it on install and this apply adopts the existing CR.
+<2> *Singleton* -- the custom resource definition (CRD) requires the name to be exactly `auth`; the operator creates it on install and this apply adopts the existing CR.
 <3> *Admin groups* -- can administer RHOAI settings: serving runtimes, cluster settings, accelerator profiles.
 <4> *Allowed groups* -- can access the RHOAI dashboard at all.
 
@@ -515,7 +515,7 @@ Log in to the RHOAI dashboard as one of the personas - use the `freeipa-ldap` pr
 
 {rhoai_dashboard_url}
 
-We set all the user's to use the same password, **Password**: `{password}`
+We set all the user's to use the same password, *Password*: `{password}`
 
 . Log in as `sci-eve` (Data Scientist, Lending). The Data Science Projects list shows `rhoai-lending` as a project you can work in -- and `rhoai-insurance` is not listed at all.
 +
@@ -524,7 +524,7 @@ image::22-sci-eve-projects.png[RHOAI dashboard as sci-eve: only rhoai-lending is
 . Log out and back in as `own-alice` (Data Owner, Lending). The project settings and access control for `rhoai-lending` are now available to you.
 +
 image::23-own-alice-access-control.png[RHOAI dashboard as own-alice: the rhoai-lending project Roles tab with per-persona bindings,link=self,window=blank,width=800]
-. Finally, prove the denial path as `dev-nia` (Developer -- not in `rhods-users`). Log in to the console via **freeipa-ldap**: authentication succeeds -- `dev-nia` is a directory user, and the OpenShift IdP admits every directory user. OpenShift is the platform layer: `dev-nia` lands with no groups and an empty console.
+. Finally, prove the denial path as `dev-nia` (Developer -- not in `rhods-users`). Log in to the console via *freeipa-ldap*: authentication succeeds -- `dev-nia` is a directory user, and the OpenShift IdP admits every directory user. OpenShift is the platform layer: `dev-nia` lands with no groups and an empty console.
 +
 image::24-dev-nia-console-empty.png[OpenShift console as dev-nia: authenticated but no groups, No Projects found,link=self,window=blank,width=800]
 . Open the RHOAI dashboard as `dev-nia` -- the Auth CR's `allowedGroups` gates RHOAI, and `dev-nia` is not in `rhods-users`, so the dashboard shows the Access denied page. Two gates: the identity provider decides who can log in to OpenShift; the Auth CR decides who can use RHOAI.
@@ -847,7 +847,7 @@ RHOAI RBAC spans multiple subsystems, each with its own authorization model. Thi
 |Custom ClusterRoles with `opendatahub.io/role-type` label
 |`workbench-maintainer`, `workbench-reader`, `workbench-operator`, `workbench-editor`
 
-|*Model Serving (KServe)*
+|*Model Serving (KServe, the Kubernetes model-serving runtime)*
 |InferenceService, ServingRuntime
 |OpenShift RBAC in serving namespace
 |`admin`, `edit` for create/update; `view` for read-only
@@ -946,14 +946,18 @@ The `cluster-admin` ClusterRole bypasses all RBAC checks. Avoid granting it to d
 
 == Module summary
 
-In this module you:
+**What you accomplished:**
 
-* Verified the FreeIPA persona groups -- data owners, data stewards, and data scientists per line of business, plus platform roles
-* Configured the RHOAI Auth CR with `rhods-admins` and `rhods-users` groups to control dashboard access
-* Created line-of-business Data Science Projects (`rhoai-lending`, `rhoai-insurance`), labeled `opendatahub.io/dashboard="true"` so they appear in the dashboard, with RoleBindings per persona: owners get `admin`, stewards and scientists get `edit`
-* Created custom workbench roles and bound them per persona for fine-grained notebook access control
-* Proved the model with `oc auth can-i` impersonation and dashboard walkthroughs as different personas
-* Configured MaaS performance tiers bound to groups for the Lending model, and proved tier-bound group enforcement with persona API keys
-* Reviewed the full RBAC surface area across 12 RHOAI subsystems and mapped the data-stewardship personas onto it
+* Verified the federated FreeIPA persona groups -- data owners, data stewards, and data scientists per line of business, plus the platform roles.
+* Configured the RHOAI Auth CR and RoleBindings across both lines of business, granting owners `admin` and stewards and scientists `edit` in the dashboard-enabled Data Science Projects.
+* Minted persona API keys for the MaaS performance tier bound to the Lending groups and proved tier-bound enforcement.
 
-Proceed to xref:module-03-models-assets-scale.adoc[Module 3: Managing Models and Assets at Scale].
+**Key takeaways:**
+
+* The same persona groups drive every layer: dashboard access via the Auth CR, project RoleBindings, and MaaS tier subscriptions.
+* Least-privilege workbench roles keep scientists building and owners governing.
+* A MaaS performance tier is a subscription bound to groups with token budgets and `costCenter` attribution.
+
+**Next steps:**
+
+Your organization is now modeled on the platform: groups federated, projects bound, and model access governed. Proceed to xref:module-03-models-assets-scale.adoc[Module 3: Managing Models and Assets at Scale].

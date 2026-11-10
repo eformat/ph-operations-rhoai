@@ -21,7 +21,7 @@ This section is reserved for future content covering disconnected and air-gapped
 
 * Mirror RHOAI component images to an internal registry
 * Mirror workbench images (Jupyter, code-server, RStudio)
-* Mirror model serving runtime images (vLLM, TGI, Caikit)
+* Mirror model serving runtime images (vLLM, Text Generation Inference (TGI), Caikit)
 * Configure `ImageContentSourcePolicy` or `ImageDigestMirrorSet`
 
 === Model Artifact Storage
@@ -33,7 +33,7 @@ This section is reserved for future content covering disconnected and air-gapped
 === Helm Chart and Content Delivery
 
 * Host the `zt-showroom-deployer` chart in an internal Helm repository
-* Mirror the RHDP showroom theme UI bundle
+* Mirror the Red Hat Demo Platform (RHDP) showroom theme UI bundle
 * Host Antora content builds internally
 
 === Certificate Management

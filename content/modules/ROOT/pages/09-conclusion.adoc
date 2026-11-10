@@ -20,7 +20,7 @@ You built and imported a custom workbench image, created a ModelCar OCI containe
 
 === Module 4: Upgrades
 
-You examined the RHOAI release lifecycle, inspected operator subscriptions and upgrade channels, learned about dependent operator pinning (RHCL), and reviewed MaaS version differences across 3.4, 3.5, and the upcoming 3.6.
+You examined the RHOAI release lifecycle, inspected operator subscriptions and upgrade channels, learned about dependent operator pinning with Red Hat Connectivity Link (RHCL), and reviewed MaaS version differences across 3.4, 3.5, and the upcoming 3.6.
 
 === Module 5: Observe & Debug
 
@@ -28,7 +28,7 @@ You explored built-in RHOAI monitoring, configured metrics export, reviewed the 
 
 === Module 6: Backups & DR
 
-You deployed OADP, created backups of RHOAI project namespaces, restored resources, documented the CRD dependency graph, and discussed the current product gaps and opportunities for future improvement.
+You deployed OADP, created backups of RHOAI project namespaces, practiced disaster recovery (DR) by restoring resources, documented the CRD dependency graph, and discussed the current product gaps and opportunities for future improvement.
 
 == Additional Resources
 

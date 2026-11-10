@@ -11,9 +11,9 @@ By the end of this module you will be able to:
 * Describe the "phoenix" platform-as-code pattern and explain why it matters for RHOAI operations
 * Explain the app-of-apps pattern using Helm charts, Kustomize overlays, and raw YAML
 * Demonstrate GitOps self-healing by making a manual change and watching ArgoCD revert it
-* Describe multi-cluster management with ACM and GitOps policy generation
+* Describe multi-cluster management with Advanced Cluster Management (ACM) and GitOps policy generation
 * Navigate the ArgoCD UI and understand the different components of an ArgoCD Application
-* Identify baseline security integration points with ACS
+* Identify baseline security integration points with Red Hat Advanced Cluster Security (ACS)
 * Compare secrets management strategies (Vault, Age-SOPS, ExternalSecrets Operator)
 * Describe the role of Standard Operating Procedures (SOPs) in day-2 operations
 
@@ -32,7 +32,7 @@ Enterprise AI platforms must be _reproducible_. When a cluster fails, the respon
 For RHOAI operations the phoenix pattern means:
 
 * *Operators as code* -- Subscription resources, operator versions, and channel pinning are all checked into Git. The `applications/rhoai` directory in this workshop's GitOps repository defines every operator needed by RHOAI (rhods-operator, pipelines, kueue, leader-worker-set, rhcl/kuadrant, job-set, monitoring) along with their exact version pins.
-* *Custom resources as code* -- The `DSCInitialization` and `DataScienceCluster` CRs that configure RHOAI components are version-controlled alongside the operator definitions. Changes go through pull requests, not `oc edit`.
+* *Custom resources as code* -- The `DSCInitialization` (DSCI) and `DataScienceCluster` (DSC) custom resources that configure RHOAI components are version-controlled alongside the operator definitions. Changes go through pull requests, not `oc edit`.
 * *Overlay-driven environments* -- Kustomize overlays allow the same base configuration to be tuned per environment (dev, test, prod) without duplication.
 * *Immutable audit trail* -- Git history provides a complete record of who changed what, when, and why. Combined with branch+tag protections and CI checks this forms an auditable change management process.
 
@@ -82,7 +82,7 @@ ArgoCD supports three manifest generation strategies, and a real-world RHOAI dep
 
 |*Helm Charts*
 |Parameterized, reusable components with values files per environment.
-|OLM operator installation charts (`olm-v0-chart`, `olm-v1-chart`) that accept an operator list with names, channels, and versions
+|Operator Lifecycle Manager (OLM) operator installation charts (`olm-v0-chart`, `olm-v1-chart`) that accept an operator list with names, channels, and versions
 
 |*Kustomize*
 |Base-plus-overlay composition for environment-specific tuning. Use a helm chart if you want `mutable values`.
@@ -144,7 +144,7 @@ manifests/01-ops-patterns/
 
 The environment variance lives in two small files per environment. A strategic-merge patch on the `DataScienceCluster` -- in `envs/dev/dsc-patch.yaml` model serving and the model registry are `Removed`, in `envs/prod/dsc-patch.yaml` they are `Managed` (with `rawDeploymentServiceConfig: Headless` and a model registry namespace). And the Helm chart values -- dev tracks the `beta` channel with `Automatic` approval, prod pins `stable-3.5` at `3.5.0` with `Manual` approval.
 
-[NOTE]
+[WARNING]
 ====
 The base `DataScienceCluster` only declares the components common to every environment (dashboard, workbenches). The operator removes any component that is not in the final spec, so each overlay must declare the complete set of components it needs -- never rely on a cluster's current state.
 ====
@@ -252,10 +252,10 @@ The repository demonstrates this pattern. The `policy-generator-config.yaml` wra
 cat manifests/01-ops-patterns/policy/policy-generator.yaml
 ----
 
-* **Compliance framework** -- Policies are tagged with NIST SP 800-53 controls (`CM-2 Baseline Configuration`), connecting operational automation to compliance requirements. You can use any compliance framework schema you want and if you follow a standard it makes it easier to audit and report on compliance and see easily if a cluster is compliant and what is not from the ACM Compliance Dashboard across a fleet of clusters.
-* **Placement-based targeting** -- Different overlays target different cluster groups: `placement-spokes-demo` for demo cluster environments, `placement-spokes-test` for prerelease testing cluster environments as an example.
-* **Remediation** -- Policies use `remediationAction: enforce`, meaning ACM actively reconciles cluster state, not just reports on it.
-* **pruneObjectBehavior: "None"** -- This is a very important setting that prevents ACM from deleting resources that are not in the policy definition. You don't want to accidentally delete a whole application, namespace or a cluster because of a bad change.
+* *Compliance framework* -- Policies are tagged with NIST SP 800-53 controls (`CM-2 Baseline Configuration`), connecting operational automation to compliance requirements. You can use any compliance framework schema you want and if you follow a standard it makes it easier to audit and report on compliance and see easily if a cluster is compliant and what is not from the ACM Compliance Dashboard across a fleet of clusters.
+* *Placement-based targeting* -- Different overlays target different cluster groups: `placement-spokes-demo` for demo cluster environments, `placement-spokes-test` for prerelease testing cluster environments as an example.
+* *Remediation* -- Policies use `remediationAction: enforce`, meaning ACM actively reconciles cluster state, not just reports on it.
+* *pruneObjectBehavior: "None"* -- This is a very important setting that prevents ACM from deleting resources that are not in the policy definition. You don't want to accidentally delete a whole application, namespace or a cluster because of a bad change.
 
 [TIP]
 ====
@@ -372,13 +372,18 @@ Disconnected deployment is covered in detail in the xref:08-appendix-disconnecte
 
 == Module summary
 
-In this module you:
+**What you accomplished:**
 
-* Learned the phoenix platform-as-code pattern and why disposable, Git-driven infrastructure is essential for RHOAI operations
-* Rendered Helm charts, Kustomize bases, and diffs for a runnable RHOAI operator install example that composes all three strategies
-* Verified the pre-provisioned openshift-gitops instance and navigated its Applications in the ArgoCD UI
-* Explored the app-of-apps pattern with its three composition strategies (Helm, Kustomize, raw YAML)
-* Validated changes with a client-side dry run against the cluster before committing them
-* Reviewed multi-cluster management with ACM policy generation, baseline security with ACS, secrets management strategies, and SOP practices
+* Learned the phoenix platform-as-code pattern and explored the app-of-apps pattern with its three composition strategies (Helm, Kustomize, raw YAML)
+* Rendered Helm charts, Kustomize bases, and diffs for a runnable RHOAI operator install example, and validated the changes with a client-side dry run against the cluster before committing them
+* Verified the pre-provisioned openshift-gitops instance and navigated its Applications in the ArgoCD UI, and reviewed multi-cluster management with ACM policy generation, baseline security with ACS, secrets management strategies, and SOP practices
+
+**Key takeaways:**
+
+* The phoenix pattern treats every cluster as disposable -- the desired state lives in Git, so a platform is reproduced from its declarative source instead of repaired in place.
+* The app-of-apps pattern composes Helm charts, Kustomize overlays, and raw YAML, with ArgoCD as the only thing that applies manifests to live environments.
+* ACM `PolicyGenerator` configs wrap environment overlays into governed policies for multi-cluster delivery, with `pruneObjectBehavior: "None"` as the fail-safe against wide-scale deletion.
+
+**Next steps:**
 
 Proceed to xref:module-02-data-stewardship-users-access.adoc[Module 2: Data Stewardship, Users & Access Control].
