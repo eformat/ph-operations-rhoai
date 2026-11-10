@@ -604,7 +604,7 @@ auth policy reference it -- which is exactly what the next step creates.
 ----
 ls manifests/02-idp-users-groups/maas/
 ----
-
++
 image::28-maas-modelref-pending.png[LLMInferenceService Ready and MaaSModelRef Pending awaiting governance pairing,link=self,window=blank,width=800]
 +
 Review the performance-tier subscription:
@@ -669,7 +669,7 @@ oc apply -f manifests/02-idp-users-groups/maas/subscription-standard.yaml
 oc apply -f manifests/02-idp-users-groups/maas/authpolicy-performance.yaml
 oc apply -f manifests/02-idp-users-groups/maas/authpolicy-standard.yaml
 ----
-
++
 image::29-maas-governance-apply.png[oc apply of the four governance manifests: two MaaSSubscriptions and two MaaSAuthPolicies,link=self,window=blank,width=800]
 
 . Mint API keys as the personas. API keys bind to a subscription -- the tier. Log in as the
@@ -702,7 +702,7 @@ curl -sSk -X POST "${HOST}/maas-api/v1/api-keys" \
 ----
 +
 The performance-tier attempt is rejected at the devportal:
-
++
 image::30-mint-keys-scieve.png[The standard-tier key minted and the performance-tier attempt rejected at the key mint,link=self,window=blank,width=800]
 +
 ----
@@ -730,7 +730,7 @@ export ALICE_KEY=$(curl -sSk -X POST "${HOST}/maas-api/v1/api-keys" \
 oc login -u {user} -p {password} {openshift_api_url}
 echo "Owner key: ${ALICE_KEY:0:12}..."
 ----
-
++
 image::31-mint-key-alice.png[The data owner mints the performance-tier key,link=self,window=blank,width=800]
 
 . Prove tier-bound group enforcement. Call the model with each key. Body-based routing needs
@@ -761,7 +761,7 @@ curl -sSk "${HOST}/v1/chat/completions" \
   -d "{\"model\":\"${MODEL_ID}\",\"messages\":[{\"role\":\"user\",\"content\":\"Hello\"}],\"max_tokens\":20}" \
   -o /dev/null -w "HTTP %{http_code}\n"
 ----
-
++
 image::32-model-calls.png[Chat completions through the MaaS gateway with each key; the invalid key rejected,link=self,window=blank,width=800]
 +
 Expected results:
