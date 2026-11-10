@@ -518,14 +518,14 @@ Log in to the RHOAI dashboard as one of the personas - use the `freeipa-ldap` pr
 We set all the user's to use the same password, **Password**: `{password}`
 
 . Log in as `sci-eve` (Data Scientist, Lending). The Data Science Projects list shows `rhoai-lending` as a project you can work in -- and `rhoai-insurance` is not listed at all.
-
++
 image::22-sci-eve-projects.png[RHOAI dashboard as sci-eve: only rhoai-lending is listed, rhoai-insurance is not listed at all,link=self,window=blank,width=800]
 . There is no way to reach `rhoai-insurance` from the dashboard -- no RoleBinding, no project listing, no workbench. LOB isolation is absolute.
 . Log out and back in as `own-alice` (Data Owner, Lending). The project settings and access control for `rhoai-lending` are now available to you.
-
++
 image::23-own-alice-access-control.png[RHOAI dashboard as own-alice: the rhoai-lending project Roles tab with per-persona bindings,link=self,window=blank,width=800]
 . Finally, prove the denial path as `dev-nia` (Developer -- not in `rhods-users`). Log in to the console via **freeipa-ldap**: authentication succeeds -- `dev-nia` is a directory user, and the OpenShift IdP admits every directory user. OpenShift is the platform layer: `dev-nia` lands with no groups and an empty console.
-
++
 image::24-dev-nia-console-empty.png[OpenShift console as dev-nia: authenticated but no groups, No Projects found,link=self,window=blank,width=800]
 . Open the RHOAI dashboard as `dev-nia` -- the Auth CR's `allowedGroups` gates RHOAI, and `dev-nia` is not in `rhods-users`, so the dashboard shows the Access denied page. Two gates: the identity provider decides who can log in to OpenShift; the Auth CR decides who can use RHOAI.
 

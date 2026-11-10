@@ -25,7 +25,7 @@ We apply the manifests manually to the cluster in this exercise so we can see th
 RHOAI 3.5 ships with built-in monitoring that surfaces key platform health metrics through the OpenShift web console. In this exercise you will tour those dashboards and identify the metrics that matter most for day-2 operations.
 
 . Open the RHOAI Metrics Dashboard. Open the OpenShift console and navigate to **Observe -> Dashboards**. Select the **RHOAI** dashboard from the dashboard dropdown.
-
++
 image::61-console-observe-dashboards.png[OpenShift console Observe Dashboards with the Model Serving LLM dashboards,link=self,window=blank,width=800]
 +
 You can also reach the metrics view from the RHOAI dashboard itself. Open the RHOAI dashboard at:
@@ -67,7 +67,7 @@ oc exec -n redhat-ods-monitoring prometheus-data-science-monitoringstack-0 -c pr
 ----
 +
 Each result with `"value": [<timestamp>, "1"]` indicates a healthy scrape target.
-
++
 image::65-model-serving-metrics.png[PromQL queries: p99 e2e request latency and request throughput by model,link=self,window=blank,width=850]
 
 . Review GPU Utilization Metrics
@@ -98,7 +98,7 @@ oc exec -n redhat-ods-monitoring prometheus-data-science-monitoringstack-0 -c pr
 ----
 +
 In the OpenShift console, navigate to **Observe -> Dashboards -> NVIDIA DCGM Exporter** to see a pre-built dashboard with GPU utilization, memory, temperature, and power draw panels.
-
++
 image::66b-console-metrics-query.png[Observe Metrics query browser: the RHOAI scrape targets with up 1,link=self,window=blank,width=800]
 
 === Verify
@@ -253,7 +253,7 @@ spec:
             description: "Inference error rate exceeds 5% for more than 5 minutes."
 EOF
 ----
-
++
 image::67-prometheusrule.png[oc apply of the model-serving-alerts PrometheusRule,link=self,window=blank,width=800]
 
 === Verify
@@ -277,7 +277,7 @@ model-serving-alerts    10s
 In production environments you often need to ship RHOAI metrics to an external monitoring platform (Datadog, Grafana Cloud, Splunk, a central Thanos instance). OpenShift supports this through Prometheus remote-write configuration.
 
 . Understand the Remote-Write Architecture. Prometheus remote-write sends a copy of scraped metrics to one or more remote endpoints. The configuration is applied through the cluster monitoring ConfigMap. The flow is:
-
++
 image::66-remote-write-config.png[The cluster-monitoring-config ConfigMap with the remote-write block,link=self,window=blank,width=800]
 +
 ----

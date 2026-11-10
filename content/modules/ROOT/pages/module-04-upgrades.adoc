@@ -202,7 +202,7 @@ oc get packagemanifest rhods-operator -n openshift-marketplace -o jsonpath='{ran
 ----
 +
 image::53-channels.png[packagemanifest channels for rhods-operator and the upgrade lineage,link=self,window=blank,width=850]
-
++
 The catalog also exposes the legacy 2.x `stable`/`fast` channels and the pre-release `alpha`/`beta` channels; channels vary by catalog version.
 
 . Understand Channel Semantics:
@@ -529,7 +529,7 @@ If dependent operators have `installPlanApproval: Automatic`, they can upgrade t
 == Exercise 4: Demonstrate Manual Approval Strategy and Operator Pinning
 
 . Understand Approval Strategies. OLM supports two install plan approval strategies:
-
++
 image::58-console-subscription-details.png[Console Subscription details: update channel stable-3.5, Automatic approval,link=self,window=blank,width=800]
 +
 [cols="1,3"]
@@ -549,7 +549,7 @@ image::58-console-subscription-details.png[Console Subscription details: update 
 ----
 oc get installplan -A -o custom-columns='NAMESPACE:.metadata.namespace,NAME:.metadata.name,CSV:.spec.clusterServiceVersionNames[*],APPROVED:.spec.approved,PHASE:.status.phase' | grep -v "^NAMESPACE" | sort
 ----
-
++
 image::57-console-subscriptions.png[OpenShift console Subscriptions page showing the rhods-operator subscription,link=self,window=blank,width=800]
 
 . Demonstrate Switching to Manual Approval (Dry Run).
@@ -604,7 +604,7 @@ Manual approval is a function of the OperatorGroup's namespace, not of a single 
 ====
 
 . Operator Pinning: The RHCL Example. Operator pinning prevents a dependent operator from upgrading beyond a tested version. This is critical for operators like RHCL where a minor version bump could introduce breaking API changes.
-
++
 image::58b-console-subscription-yaml.png[The Subscription manifest YAML in the console,link=self,window=blank,width=800]
 +
 **Why pin RHCL?**

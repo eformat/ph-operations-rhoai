@@ -13,13 +13,15 @@ By the end of this module you will be able to:
 * Demonstrate GitOps self-healing by making a manual change and watching ArgoCD revert it
 * Describe multi-cluster management with ACM and GitOps policy generation
 * Navigate the ArgoCD UI and understand the different components of an ArgoCD Application
-
-image::13-argocd-app-detail.png[ArgoCD Application details for rhoai-install: the resource tree with Synced and Healthy status,link=self,window=blank,width=800]
-
-image::12-argocd-apps-list.png[ArgoCD Applications list view: the app-of-apps Applications with Synced/Healthy status,link=self,window=blank,width=800]
 * Identify baseline security integration points with ACS
 * Compare secrets management strategies (Vault, Age-SOPS, ExternalSecrets Operator)
 * Describe the role of Standard Operating Procedures (SOPs) in day-2 operations
+
+The ArgoCD UI you will inspect in this module -- the app-of-apps Applications list, and the resource tree of a single Application with its Synced/Healthy status:
+
+image::12-argocd-apps-list.png[ArgoCD Applications list view: the app-of-apps Applications with Synced/Healthy status,link=self,window=blank,width=800]
+
+image::13-argocd-app-detail.png[ArgoCD Application details for rhoai-install: the resource tree with Synced and Healthy status,link=self,window=blank,width=800]
 
 This module is a discussion of some core patterns and practices for operating a RHOAI platform.
 
@@ -91,11 +93,37 @@ ArgoCD supports three manifest generation strategies, and a real-world RHOAI dep
 |Namespace definitions, `OdhDashboardConfig` resources, ACM policies
 |===
 
-=== Worked Example: Changing DSC Config Between Environments
+=== Team Based ArgoCD
 
-Let's examine ArgoCD and ACM would see the rendered manifests for the dev and prod environments using a small example.
+In nearly all cases the cluster-admin scoped ArgoCD instance is a separate one from team-scoped ArgoCD instances on a cluster.
 
-You can use these techniques to verify that your changes are correct and will be applied correctly to actual clusters.
+This is because the cluster-admin scoped ArgoCD instance is used to manage the platform-wide configuration and policies, while the team-scoped ArgoCD instances are used to manage the team-specific application configuration and policies. The configured service account in ArgoCD required for creating cluster scoped resources is highly privileged.
+
+Aligning how we can set up our GitOps tooling so that it fits with out team structure when it comes to RBAC and permissions is discussed in the redhat-cop/gitops-operator helm chart's README. This is a good starting point for understanding how we can align our deployments with our teams.
+
+https://github.com/redhat-cop/helm-charts/blob/main/charts/gitops-operator/TEAM_DOCS.md
+
+One other feature that is worth knowing about but is not yet ready for production use is ArgoCD's `Application Sync Using Impersonation`. This is a `beta-quality` feature that allows you to control the service account used for the sync operation. One day it may become the default way to prevent ArgoCD instance sprawl on a single cluster.
+
+https://argo-cd.readthedocs.io/en/latest/operator-manual/app-sync-using-impersonation/
+
+=== How GitOps and ACM Configuration Policies Work Together
+
+In the `applications/rhoai` example:
+
+. The `base/kustomization.yaml` pulls in raw YAML resources (`dsci-cr.yaml`, `dsc-cr.yaml`, `odh-dashboard.yaml`) alongside Helm-rendered operator subscriptions.
+. Overlay directories like `overlay/dev/` patch the base with environment-specific custom resources (hardware profiles, MLflow, Postgres for MaaS, etc).
+. ACM `PolicyGenerator` configs wrap the overlay output into governance policies for multi-cluster delivery.
+
+This layered approach keeps each concern in the right abstraction: Helm for parameterized reuse, Kustomize for environment variance, raw YAML for simple declarations.
+
+ACM Configuration Policies are a powerful way to manage the configuration of your clusters. In particular they allow for `sprig based templating` to be used in the policy definitions. These allow complex lookups and transformations to be performed on the data in the policy definition that is often not possible with simple YAML and Helm templates.
+
+https://open-cluster-management.io/docs/getting-started/integration/policy-controllers/policy
+
+== Exercise 1: Render, Diff, and Dry-Run the Platform-as-Code Example
+
+Let's examine how ArgoCD and ACM would see the rendered manifests for the dev and prod environments using a small example. You can use these techniques to verify that your changes are correct and will be applied correctly to actual clusters.
 
 The `manifests/01-ops-patterns` directory in this workshop's repository is a small, runnable example of all three strategies composed into a dev and a prod environment:
 
@@ -121,8 +149,8 @@ The environment variance lives in two small files per environment. A strategic-m
 The base `DataScienceCluster` only declares the components common to every environment (dashboard, workbenches). The operator removes any component that is not in the final spec, so each overlay must declare the complete set of components it needs -- never rely on a cluster's current state.
 ====
 
-You can render both environments locally with the same command the ArgoCD plugin runs:
-
+. Render the operator install for each environment with the same command the ArgoCD plugin runs:
++
 [source,bash,role="execute"]
 ----
 # Helm -- render the operator install for an environment
@@ -133,31 +161,31 @@ helm template rhoai-operators manifests/01-ops-patterns/envs/prod/charts/rhoai-o
 kustomize build --enable-alpha-plugins --enable-helm manifests/01-ops-patterns/envs/dev
 kustomize build --enable-alpha-plugins --enable-helm manifests/01-ops-patterns/envs/prod
 ----
-
++
+image::07-helm-template.png[helm template output: the rendered Subscription manifest for the dev environment (beta channel, Automatic approval),link=self,window=blank,width=850]
++
 image::08-kustomize-build.png[kustomize build output: the fully inflated dev environment manifests,link=self,window=blank,width=850]
 
-image::07-helm-template.png[helm template output: the rendered Subscription manifest for the dev environment (beta channel, Automatic approval),link=self,window=blank,width=850]
-
-Diffing the two kustomize outputs shows exactly what changes between dev and prod: the `DataScienceCluster` components and the `Subscription` channel and approval. A side-by-side `diff` with process substitution keeps it to a single command:
-
+. Diff the two kustomize outputs to see exactly what changes between dev and prod: the `DataScienceCluster` components and the `Subscription` channel and approval. A side-by-side `diff` with process substitution keeps it to a single command:
++
 [source,bash,role="execute"]
 ----
 diff -y --color --suppress-common-lines \
     <(kustomize build --enable-alpha-plugins --enable-helm manifests/01-ops-patterns/envs/dev) \
     <(kustomize build --enable-alpha-plugins --enable-helm manifests/01-ops-patterns/envs/prod)
 ----
-
++
 The output (excerpt) -- dev on the left, prod on the right:
-
++
 image::09-diff-dev-prod.png[Side-by-side diff: managementState Removed vs Managed, channel beta vs stable-3.5, approval Automatic vs Manual,link=self,window=blank,width=850]
 
-Before committing, the same output can be validated with a client-side dry run. Nothing is applied -- ArgoCD will still be the only thing that ever applies these manifests to a live environment:
-
+. Before committing, validate the same output with a client-side dry run. Nothing is applied -- ArgoCD will still be the only thing that ever applies these manifests to a live environment:
++
 [source,bash,role="execute"]
 ----
 kustomize build --enable-alpha-plugins --enable-helm manifests/01-ops-patterns/envs/prod | oc apply --dry-run=client -f -
 ----
-
++
 .Output (excerpt)
 [source]
 ----
@@ -168,7 +196,7 @@ odhdashboardconfig.opendatahub.io/odh-dashboard-config configured (dry run)
 operatorgroup.operators.coreos.com/redhat-ods-operator created (dry run)
 subscription.operators.coreos.com/rhods-operator configured (dry run)
 ----
-
++
 [NOTE]
 ====
 Read the verb: `configured (dry run)` means the resource already exists on the cluster and would be updated; `created (dry run)` means it would be newly created. Either way nothing is persisted -- and dry runs still need API discovery for custom resources, so they are run against a cluster.
@@ -176,41 +204,18 @@ Read the verb: `configured (dry run)` means the resource already exists on the c
 image::10-dry-run.png[oc apply --dry-run=client output: configured (dry run) and created (dry run) lines,link=self,window=blank,width=800]
 ====
 
-With the ACM https://github.com/stolostron/policy-generator-plugin/releases[policy-generator-plugin] installed, the same command at the top level wraps both environments into ACM `Policy` objects:
-
+. With the ACM https://github.com/stolostron/policy-generator-plugin/releases[policy-generator-plugin] installed, the same command at the top level wraps both environments into ACM `Policy` objects:
++
 [source,bash,role="execute"]
 ----
 kustomize build --enable-alpha-plugins --enable-helm manifests/01-ops-patterns/
 ----
 
-=== Team Based ArgoCD
+=== Verify
 
-In nearly all cases the cluster-admin scoped ArgoCD instance is a separate one from team-scoped ArgoCD instances on a cluster.
-
-This is because the cluster-admin scoped ArgoCD instance is used to manage the platform-wide configuration and policies, while the team-scoped ArgoCD instances are used to manage the team-specific application configuration and policies. The configured service account in ArgoCD required for creating cluster scoped resources is highly privileged.
-
-Aligning how we can set up our GitOps tooling so that it fits with out team structure when it comes to RBAC and permissions is discussed in the redhat-cop/gitops-operator helm chart's README. This is a good starting point for understanding how we can align our deployments with our teams.
-
-https://github.com/redhat-cop/helm-charts/blob/main/charts/gitops-operator/TEAM_DOCS.md
-
-One other feature that is worth knowing about but is not yet ready for production use is ArgoCD's `Application Sync Using Impersonation`. This is a `beta-quality` feature that allows you to control the service account used for the sync operation. One day it may become the default way to prevent ArgoCD instance sprawl on a single cluster.
-
-https://argo-cd.readthedocs.io/en/latest/operator-manual/app-sync-using-impersonation/
-
-
-=== How GitOps and ACM Configuration Policies Work Together
-
-In the `applications/rhoai` example:
-
-. The `base/kustomization.yaml` pulls in raw YAML resources (`dsci-cr.yaml`, `dsc-cr.yaml`, `odh-dashboard.yaml`) alongside Helm-rendered operator subscriptions.
-. Overlay directories like `overlay/dev/` patch the base with environment-specific custom resources (hardware profiles, MLflow, Postgres for MaaS, etc).
-. ACM `PolicyGenerator` configs wrap the overlay output into governance policies for multi-cluster delivery.
-
-This layered approach keeps each concern in the right abstraction: Helm for parameterized reuse, Kustomize for environment variance, raw YAML for simple declarations.
-
-ACM Configuration Policies are a powerful way to manage the configuration of your clusters. In particular they allow for `sprig based templating` to be used in the policy definitions. These allow complex lookups and transformations to be performed on the data in the policy definition that is often not possible with simple YAML and Helm templates.
-
-https://open-cluster-management.io/docs/getting-started/integration/policy-controllers/policy
+* The diff shows exactly two deltas between dev and prod: the `DataScienceCluster` component `managementState` (`Removed` vs `Managed`) and the `Subscription` channel and approval (`beta`/`Automatic` vs `stable-3.5`/`Manual`).
+* The dry run reports only `configured (dry run)` and `created (dry run)` lines -- nothing was persisted to the cluster; ArgoCD remains the only thing that applies manifests to the live environments.
+* The top-level `kustomize build` wraps both environments into ACM `Policy` objects for multi-cluster delivery.
 
 == Multi-Cluster Management with ACM and GitOps
 
