@@ -8,7 +8,7 @@ metadata:
 spec:
   description: Infra + platform layer of the RHOAI Operations workshop (RHOAI install, MaaS platform, LDAP directory + identity setup, MaaS model, MLflow, Kueue, OADP)
   sourceRepos:
-    - https://github.com/rhpds/ph-operations-rhoai
+    - https://github.com/eformat/ph-operations-rhoai
   destinations:
     - namespace: '*'
       server: https://kubernetes.default.svc

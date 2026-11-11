@@ -62,7 +62,7 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: https://github.com/rhpds/ph-operations-rhoai
+    repoURL: https://github.com/eformat/ph-operations-rhoai
     targetRevision: main
     path: automation/gitops/cluster/infra/bootstrap
     helm:

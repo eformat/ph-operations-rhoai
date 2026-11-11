@@ -15,7 +15,7 @@
 # Git defaults — applied to every child Application via the &git_defaults anchor.
 # ---------------------------------------------------------------------------
 default_settings: &git_defaults
-  repoURL: https://github.com/rhpds/ph-operations-rhoai
+  repoURL: https://github.com/eformat/ph-operations-rhoai
   targetRevision: main
 
 # ---------------------------------------------------------------------------

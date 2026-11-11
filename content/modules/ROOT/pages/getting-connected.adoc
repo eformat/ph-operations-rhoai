@@ -65,7 +65,7 @@ The manifests referenced by the `oc` commands in later modules live in the works
 
 [source,bash,role="execute"]
 ----
-git clone https://github.com/rhpds/ph-operations-rhoai.git ~/ph-operations-rhoai
+git clone https://github.com/eformat/ph-operations-rhoai.git ~/ph-operations-rhoai
 cd ~/ph-operations-rhoai
 ls manifests
 ----

@@ -24,5 +24,5 @@ export KUBECONFIG=~/.kube/config.fde2
 helm upgrade --install showroom ~/git/zt-showroom-deployer \
   -n showroom-rhoai-operations --create-namespace \
   -f automation/showroom-deployer/values-rhoai-operations-fde2.yaml \
-  --set showroom.gitRepoUrl="https://github.com/rhpds/ph-operations-rhoai.git"
+  --set showroom.gitRepoUrl="https://github.com/eformat/ph-operations-rhoai.git"
 ```

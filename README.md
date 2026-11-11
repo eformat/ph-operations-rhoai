@@ -38,7 +38,7 @@ Claude will walk you through the entire content lifecycle — from intake and sp
 
 ### DevSpaces (recommended)
 
-1. Open in DevSpaces: `https://devspaces.apps.ocpv-infra02.wdc07.infra.demo.redhat.com#https://github.com/rhpds/ph-operations-rhoai`
+1. Open in DevSpaces: `https://devspaces.apps.ocpv-infra02.wdc07.infra.demo.redhat.com#https://github.com/eformat/ph-operations-rhoai`
 2. Use Claude via the **extension** or the **CLI**:
    - **Extension:** Click the **Claude** icon in the sidebar, click **New Session**. If the Claude icon is not visible, open **Extensions** (`Ctrl/Cmd+Shift+X`), find **Claude Code for VS Code** under the DevSpaces section, click it, then click **Enable (Workspace)**.
    - **CLI:** Open a terminal and run `claude`
@@ -52,7 +52,7 @@ Claude will walk you through the entire content lifecycle — from intake and sp
    ```
 2. Clone the repo:
    ```
-   git clone https://github.com/rhpds/ph-operations-rhoai
+   git clone https://github.com/eformat/ph-operations-rhoai
    ```
 3. `cd ph-operations-rhoai`
 4. Start Claude CLI: `claude`

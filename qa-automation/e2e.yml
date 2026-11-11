@@ -52,7 +52,7 @@
     K8S_AUTH_KUBECONFIG: "{{ k8s_kubeconfig | default(omit) }}"
   vars:
     # The repo URL and ref to clone for manifests access.
-    repo_url: https://github.com/rhpds/ph-operations-rhoai.git
+    repo_url: https://github.com/eformat/ph-operations-rhoai.git
     repo_ref: "{{ tag | default('main') }}"
     repo_path: /tmp/ph-operations-rhoai
     # The working project students create in Getting Connected.
