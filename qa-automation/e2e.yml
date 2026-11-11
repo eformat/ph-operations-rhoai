@@ -293,12 +293,20 @@
       changed_when: false
 
     - name: "M5 | PromQL query — platform up metric"
-      ansible.builtin.shell: >-
-        oc exec -n redhat-ods-monitoring deploy/monitoring-prometheus-prometheus
-        -c prometheus -- curl -s https://localhost:9090/api/v1/query
-        --data-urlencode 'query=up' | jq -e '.data.result | length > 0'
-      args:
-        executable: /bin/bash
+      # NOTE: no `args: executable` here — mixing a multiline shell block with
+      # an args dict makes Ansible kv-parse the script and choke on it. The
+      # command is POSIX-sh compatible.
+      #
+      # RHOAI 3.5 monitoring stack: prometheus runs as a StatefulSet pod
+      # (prometheus-<monitoringstack-name>-0), not the old Deployment. The
+      # in-pod TLS cert is a service CA the container doesn't trust, hence -k.
+      ansible.builtin.shell: |
+        PROM_POD=$(oc get pods -n redhat-ods-monitoring \
+          -l app.kubernetes.io/name=prometheus \
+          -o jsonpath='{.items[0].metadata.name}')
+        oc exec -n redhat-ods-monitoring "$PROM_POD" -c prometheus -- \
+          curl -sk https://localhost:9090/api/v1/query \
+          --data-urlencode 'query=up' | jq -e '.data.result | length > 0'
       register: promql
       until: promql.rc == 0
       retries: 5
@@ -394,7 +402,10 @@
                   prefix: rhoai
                 provider: aws
         EOF
-        oc wait --for=condition=Available dataprotectionapplication/oadp-dpa -n openshift-adp --timeout=10m
+        # The DPA has no `Available` condition — its readiness signals are the
+        # `Reconciled` condition and the velero Deployment becoming Available.
+        oc wait --for=condition=Reconciled dataprotectionapplication/oadp-dpa -n openshift-adp --timeout=10m
+        oc wait --for=condition=Available deployment/velero -n openshift-adp --timeout=5m
       changed_when: true
 
     - name: "M6 | Seed a test config map in the working project"
@@ -422,7 +433,10 @@
           defaultVolumesToFsBackup: false
           snapshotVolumes: false
         EOF
-        oc wait --for=jsonpath='{.status.phase}'=Completed backup/${BACKUP_NAME} -n openshift-adp --timeout=10m
+        # Fully-qualified resource name: the bare `backup` short name resolves
+        # to backups.postgresql.cnpg.noobaa.io on clusters with ODF (multi-CRD
+        # short-name collision).
+        oc wait --for=jsonpath='{.status.phase}'=Completed backups.velero.io/${BACKUP_NAME} -n openshift-adp --timeout=10m
       register: backup_result
       changed_when: true
 
@@ -446,7 +460,7 @@
             - {{ project_name }}
           existingResourcePolicy: update
         EOF
-        oc wait --for=jsonpath='{.status.phase}'=Completed restore/${RESTORE_NAME} -n openshift-adp --timeout=10m
+        oc wait --for=jsonpath='{.status.phase}'=Completed restores.velero.io/${RESTORE_NAME} -n openshift-adp --timeout=10m
       changed_when: true
 
     - name: "M6 | VERIFY — Restored config map is back with its data"
