@@ -5,18 +5,23 @@
 # NOTE: applying a MachineConfig triggers a rolling reboot of the matching
 # nodes (one-time disruption). The unit runs Before=kubelet.service at every
 # boot, so the boolean is re-applied on each node restart.
+# The pod is NOT pinned to a node: on clusters with schedulable master,worker
+# nodes (e.g. RHDP sandboxes) those nodes belong to the MASTER pool, so the
+# boolean must be rendered into every pool the pod can land on — one
+# MachineConfig per role (role + extraRoles).
 {{- if .Values.machineconfig.enabled }}
+{{- range $i, $role := prepend .Values.machineconfig.extraRoles .Values.machineconfig.role }}
 ---
 apiVersion: machineconfiguration.openshift.io/v1
 kind: MachineConfig
 metadata:
   labels:
-    machineconfiguration.openshift.io/role: {{ .Values.machineconfig.role }}
-  name: 01-sebool-container-manage-cgroup
+    machineconfiguration.openshift.io/role: {{ $role }}
+  name: 01-sebool-container-manage-cgroup{{ if gt $i 0 }}-{{ $role }}{{ end }}
 spec:
   config:
     ignition:
-      version: {{ .Values.machineconfig.ignitionVersion }}
+      version: {{ $.Values.machineconfig.ignitionVersion }}
     systemd:
       units:
       - contents: |
@@ -29,4 +34,5 @@ spec:
           WantedBy=multi-user.target
         enabled: true
         name: sebool-container-manage-cgroup.service
+{{- end }}
 {{- end }}
