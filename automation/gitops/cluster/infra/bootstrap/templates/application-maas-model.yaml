@@ -25,7 +25,11 @@ spec:
       - SkipDryRunOnMissingResource=true
       - RespectIgnoreDifferences=true
     retry:
-      limit: 10
+      # Budget note: ~46 min of retry coverage (10 retries ≈ 17 min exhausts
+      # BEFORE the e2e/students create rhoai-lending on fast-converging
+      # clusters — kv7zk 2026-11-11 — and ArgoCD then SUPPRESSES the
+      # auto-sync until the Application object is recreated).
+      limit: 20
       backoff:
         duration: 5s
         factor: 2

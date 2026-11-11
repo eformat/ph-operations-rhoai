@@ -32,8 +32,9 @@ Repairs that DO NOT work (all tried on sjzfp):
 
 Current mitigation:
 
-- the subscription rides `stable-v1.5` (newest channel; may carry a scoped
-  selector fix upstream)
+- the subscription rides `stable-v1.5` — verified on kv7zk (fresh cluster,
+  resolved straight to v1.5.0): the collision is NOT fixed in v1.5 either, the
+  webhook endpoints still include co-located kuadrant/limitador pods
 - the e2e's LocalQueue task retries (qa-automation/e2e.yml M3), and students
   hitting the error simply re-run the apply
 
