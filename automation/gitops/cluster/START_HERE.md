@@ -264,7 +264,7 @@ oc get dsci,dsc                                       # default-dsci Ready, defa
 oc -n openshift-gitops get app maas-platform          # synced after the hook Jobs complete
 oc -n kuadrant-system get jobs                        # the 4 hook Jobs Completed
 oc -n kuadrant-system get kuadrant                    # Kuadrant CR (observability enabled)
-oc get csv -n openshift-operators | grep -Ei 'kuadrant|authorino|limitador'
+oc get csv -n kuadrant-system | grep -Ei 'kuadrant|authorino|limitador'
 oc -n openshift-ingress get gateway,route             # maas-default-gateway Programmed + maas-gateway-route
 oc -n openshift-ingress get gateway maas-default-gateway -o jsonpath='{.status.addresses}{"\n"}'
                                                       # maas.<domain> (patched by the gateway-status Job)

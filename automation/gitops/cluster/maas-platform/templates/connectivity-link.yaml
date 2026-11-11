@@ -40,13 +40,31 @@ spec:
   source: redhat-operators
   sourceNamespace: openshift-marketplace
 ---
-# Red Hat Connectivity Link operator (Kuadrant). Installs cluster-wide
-# (openshift-operators is the global operators namespace).
+# Red Hat Connectivity Link operator (Kuadrant). Installed in its own
+# `kuadrant-system` namespace with a GLOBAL OperatorGroup — the pattern used
+# across the automation repos (gitops-clusters olm-v0-chart: namespace
+# create+global, rhoai-cluster-pool overlays, deploy-configure): the RHCL
+# operator and its companion operators (limitador, authorino) live in
+# kuadrant-system, NOT in the shared openshift-operators. Keeping them out of
+# openshift-operators also avoids the kueue-webhook-service selector collision
+# (see automation/gitops/cluster/kueue/README.md): on kv7zk/sjzfp the
+# kuadrant/limitador manager pods joined the kueue webhook endpoints and
+# refused its admission calls.
+apiVersion: operators.coreos.com/v1
+kind: OperatorGroup
+metadata:
+  # global (no targetNamespaces) — mirrors the olm-v0-chart's
+  # namespace.global=true for rhcl-operator.
+  name: kuadrant-system-og
+  namespace: kuadrant-system
+spec:
+  upgradeStrategy: Default
+---
 apiVersion: operators.coreos.com/v1alpha1
 kind: Subscription
 metadata:
   name: rhcl-operator
-  namespace: openshift-operators
+  namespace: kuadrant-system
 spec:
   channel: stable
   installPlanApproval: Automatic
