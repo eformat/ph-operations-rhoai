@@ -76,6 +76,16 @@
         force: true
 
     # ========================================================================
+    # SETUP — The working project students create in Getting Connected.
+    # Replayed idempotently so the e2e can run before any student is seated.
+    # ========================================================================
+
+    - name: "SETUP | Create the working project (Getting Connected, idempotent)"
+      ansible.builtin.shell: |
+        oc new-project {{ project_name }} 2>/dev/null || true
+      changed_when: true
+
+    # ========================================================================
     # MODULE 1 — Operations Patterns (render-only worked example)
     # ========================================================================
     # The module's hands-on exercise renders and diffs the dev/prod
@@ -97,7 +107,12 @@
       args:
         chdir: "{{ repo_path }}/manifests/01-ops-patterns"
         executable: /bin/bash
+      register: env_diff
       changed_when: false
+      # diff rc=1 means "differences found" — the EXPECTED outcome (dev and prod
+      # are supposed to differ; the exercise diffs them side by side). Only a
+      # real error (rc>=2: kustomize build failure, missing dir) fails the task.
+      failed_when: env_diff.rc >= 2
 
     - name: "M1 | Client-side dry run of the prod environment"
       ansible.builtin.shell: >-
@@ -151,9 +166,9 @@
 
     - name: "M2 | Bind workbench roles to groups"
       ansible.builtin.shell: |
-        oc adm policy add-cluster-role-to-group workbench-maintainer {{ item }}-data-owners    -n rhoai-{{ item }}
-        oc adm policy add-cluster-role-to-group workbench-editor     {{ item }}-data-stewards  -n rhoai-{{ item }}
-        oc adm policy add-cluster-role-to-group workbench-operator   {{ item }}-data-scientists -n rhoai-{{ item }}
+        oc adm policy add-role-to-group workbench-maintainer {{ item }}-data-owners    -n rhoai-{{ item }}
+        oc adm policy add-role-to-group workbench-editor     {{ item }}-data-stewards  -n rhoai-{{ item }}
+        oc adm policy add-role-to-group workbench-operator   {{ item }}-data-scientists -n rhoai-{{ item }}
       loop: "{{ lobs }}"
       changed_when: true
 
@@ -196,7 +211,7 @@
 
     - name: "M2 | VERIFY — Auth CR carries the workshop groups"
       ansible.builtin.command: >-
-        oc get auth default -o jsonpath='{.spec.adminGroups} {.spec.allowedGroups}'
+        oc get auth auth -o jsonpath='{.spec.adminGroups} {.spec.allowedGroups}'
       register: auth_groups
       failed_when: >-
         auth_groups.stdout is not search('rhods-admins') or
@@ -228,6 +243,14 @@
         spec:
           clusterQueue: research-team
         EOF
+      # The kueue webhook service selector collides with other kubebuilder
+      # operators in openshift-operators (see cluster/kueue/README.md) —
+      # webhook calls can land on a pod that refuses them. Retry until the
+      # load balancer picks a kueue pod.
+      register: lq_apply
+      until: lq_apply.rc == 0
+      retries: 10
+      delay: 5
       changed_when: true
 
     - name: "M3 | VERIFY — Hardware profiles are listed"

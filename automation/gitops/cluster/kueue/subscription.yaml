@@ -8,13 +8,16 @@
 # The Subscription lands in openshift-operators (AllNamespaces OperatorGroup).
 # The operator installs the kueue.x-k8s.io CRDs (~1-2 min); demo-queues.yaml
 # rides the Application's SkipDryRunOnMissingResource + retry until they exist.
+#
+# channel stable-v1.5: bumped from stable-v1.4 to pick up the webhook-service
+# selector fix (see the collision note in this directory's README.md).
 apiVersion: operators.coreos.com/v1alpha1
 kind: Subscription
 metadata:
   name: kueue-operator
   namespace: openshift-operators
 spec:
-  channel: stable-v1.4
+  channel: stable-v1.5
   installPlanApproval: Automatic
   name: kueue-operator
   source: redhat-operators
